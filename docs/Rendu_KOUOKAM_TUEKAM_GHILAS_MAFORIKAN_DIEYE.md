@@ -1,6 +1,6 @@
-# Projet GC-MS — Données nécessaires et structure exploitable
+# Projet GCMS — Données nécessaires et structure exploitable
 
-**Rendu du groupe 14 — 5 octobre 2026**
+**Rendu du groupe 14 : 5 octobre 2026**
 
 - Steve Landry KOUOKAM — chef de groupe
 - Ludovic TUEKAM
@@ -8,7 +8,7 @@
 - Harald MAFORIKAN
 - Ismaila DIEYE
 
-Ce document répond aux deux questions de cadrage : quelles informations extraire pour déterminer les concentrations des molécules toxiques connues, et comment organiser le projet pour rendre ces informations exploitables ?
+Ce document répond aux deux questions de cadrage sur lesquelles nous nous sommes appesantis : quelles informations extraire pour déterminer les concentrations des molécules toxiques connues, et comment organiser le projet pour rendre ces informations exploitables ?
 
 ## 1. Quelles données devons-nous extraire ?
 

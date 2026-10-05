@@ -10,8 +10,6 @@
 
 Ce document répond aux deux questions de cadrage : quelles informations extraire pour déterminer les concentrations des molécules toxiques connues, et comment organiser le projet pour rendre ces informations exploitables ?
 
-> Cette version Markdown conserve les informations, tableaux, formules et figures du rendu. La version PDF reste la référence pour la mise en page exacte en Calibri et en noir et blanc.
-
 ## 1. Quelles données devons-nous extraire ?
 
 Notre objectif est de déterminer la concentration des 16 hydrocarbures aromatiques polycycliques (HAP) ciblés par la méthode, dans une solution analysée par GC-MS. Nous devons relier les signaux mesurés à des molécules connues, puis convertir leur réponse en concentration grâce à une calibration vérifiée. [1, 2]

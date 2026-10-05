@@ -2,7 +2,7 @@
 
 **Rendu du groupe 14 : 5 octobre 2026**
 
-- Steve Landry KOUOKAM — chef de groupe
+- Steve Landry KOUOKAM (chef de groupe)
 - Ludovic TUEKAM
 - Radia GHILAS
 - Harald MAFORIKAN

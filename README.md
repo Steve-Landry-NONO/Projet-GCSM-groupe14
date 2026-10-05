@@ -10,11 +10,11 @@ Le dépôt est volontairement évolutif. Il contient le cadrage actuel, les donn
 
 - Steve Landry KOUOKAM — chef de groupe — `@Steve-Landry-NONO`
 - Ludovic TUEKAM — `@ludovictuekam9-hue`
-- Radia GHILAS — `@Radiaghilas`
+- Radia GHILAS — `@radiaghilas`
 - Harald MAFORIKAN — `@harald8`
 - Ismaila DIEYE
 
-Encadrement et relecture : `@Horhakim` et `@Septentrion`.
+Encadrement et relecture : `@HorHakim` et `@Septentrion`.
 
 ## Question centrale
 
@@ -30,7 +30,7 @@ Notre réponse actuelle est la suivante : un nom de composé ou un chromatogramm
 | [Rapport Markdown](docs/Rendu_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.md) | Version lisible directement sur GitHub, facile à corriger et à faire évoluer. |
 | [Notebook Jupyter](notebooks/Notebook_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.ipynb) | Exploration reproductible, commentaires simples et visualisations. |
 | [Notebook HTML](notebooks/Notebook_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.html) | Aperçu autonome du notebook déjà exécuté. |
-| [Figures](assets/figures/) | Images en noir et blanc utilisées dans le rapport et dans le notebook. |
+| [Figures](https://github.com/Steve-Landry-NONO/Projet-GCSM-groupe14/tree/main/assets/figures) | Images en noir et blanc utilisées dans le rapport et dans le notebook. |
 
 Le PDF conserve exactement la présentation du rendu. Le Markdown conserve le contenu scientifique, les tableaux, les formules et les liens vers les figures, mais GitHub applique sa propre police et sa propre mise en page. Les deux formats sont donc complémentaires.
 

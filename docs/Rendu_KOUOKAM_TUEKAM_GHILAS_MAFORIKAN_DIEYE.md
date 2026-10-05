@@ -1,4 +1,4 @@
-# Projet GCMS — Données nécessaires et structure exploitable
+# Projet GCMS : Données nécessaires et structure exploitable
 
 **Rendu du groupe 14 : 5 octobre 2026**
 

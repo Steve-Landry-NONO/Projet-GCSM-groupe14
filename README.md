@@ -87,11 +87,12 @@ Projet-GCSM-groupe14/
 │   ├── peaks.py                détection et intégration d'un pic
 │   ├── reference.py            référence GAM-6
 │   ├── measure.py              contrôle des GAM et SF
+│   ├── alerts.py               alertes bloquantes ou informatives
 │   ├── run_reference.py
 │   ├── run_batch.py
 │   └── run_calibration.py
-├── tests/
-│   └── test_synthetic.py
+├── tests/                      tests unitaires et caractérisation synthétique
+├── archive/rendu_mardi/        prototype du premier rendu GAM-6, historique (apporté par la PR #1)
 ├── data/                       (non versionné) data/raw/<batch>/*.D et data/metadata.xlsx
 ├── outputs/                    (non versionné) résultats calculés
 ├── docs/
@@ -175,7 +176,7 @@ indique ici un ajustement calculable et croissant, pas une validation complète 
 Les coélutions, doubles pics et filtres de pics parasites demandent encore une validation métier.
 
 ```bash
-python -m unittest discover -s tests -p test_validation.py -v
+python -m unittest discover -s tests -p "test_*.py" -v
 python tests/test_synthetic.py
 ```
 
@@ -195,3 +196,19 @@ visibles ; la réponse stricte reste bloquée.
 les courbes. Les calibrations sont marquées `exploratoire` et toutes les SF
 calculées `NON VALIDÉ (exploratoire)`, même avec un faible écart. Utiliser un
 dossier de sortie distinct des résultats stricts. Les seuils ne sont pas élargis.
+
+## Alertes bloquantes et informatives
+
+Une vallée entre deux pics n'est plus bloquante par principe. Le rapport
+vallée/hauteur `v = (L_borne − F)/(H − F)` est mesuré sur chaque pic ; la
+vallée devient informative si `v <= 10 %` (`--valley-max`), et un bord de
+fenêtre SIM si le signal résiduel est `<= 1 %` de la hauteur (`--edge-max`).
+Toutes les autres alertes restent bloquantes : attribution ambiguë, pic
+réaffecté, qualifiant douteux, `double_peak`, `median_despike`. Ces seuils
+sont expérimentaux, à confirmer avec l'encadrement : ils ne prouvent pas la
+justesse des aires. Méthode, tests et limites :
+[docs/VALLEE_HAUTEUR.md](docs/VALLEE_HAUTEUR.md).
+
+```bash
+python tests/caracteriser_vallee.py      # tableau de caractérisation (cas synthétiques)
+```

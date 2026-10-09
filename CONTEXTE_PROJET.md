@@ -10,7 +10,11 @@ Un laboratoire mesure la concentration de 16 HAP (hydrocarbures aromatiques poly
 
 ### La chaîne physique
 
-1. Les molécules sont extraites de la terre avec un solvant, ici l’hexane. On prélève une partie de l’extrait, puis on injecte un volume défini par la méthode. Prélever 1 ml sur 10 ml ne change pas la concentration : un prélèvement n’est pas une dilution. Les volumes de préparation et d’injection restent à confirmer.
+1. Les molécules sont extraites de la terre avec un solvant, ici l’hexane, puis une partie de l’extrait est injectée. La note de cours « pour une fiole de 10 ml on peut mettre par exemple 1 ml » admet deux lectures, qui changent le calcul :
+   - **prélèvement** : prélever 1 ml d’une solution homogène conserve sa concentration, sans facteur de dilution ;
+   - **dilution** : prélever 1 ml puis compléter la fiole à 10 ml avec le solvant divise la concentration par 10, et le facteur de dilution vaut 10.
+
+   Le protocole exact, le volume injecté et la définition du `multiplier` restent à confirmer avec l’encadrement avant tout calcul sur les BLPC.
 2. **Chromatographie** : la solution traverse une colonne capillaire (silice, environ 20 m) placée dans un four. Les HAP adhèrent plus ou moins à la paroi et sortent à des temps différents : c'est le **temps de rétention**.
 3. **Spectrométrie de masse** : chaque molécule qui sort est fragmentée et ionisée. Le détecteur compte les fragments selon leur rapport masse/charge (**m/z**). Chaque molécule a une empreinte de fragmentation propre (sa « loi de probabilité » de fragmentation).
 
@@ -43,7 +47,7 @@ Un laboratoire mesure la concentration de 16 HAP (hydrocarbures aromatiques poly
 
 La réponse est le rapport **aire quantifiant du composé / aire quantifiant de son ISTD**.
 
-Pour chaque échantillon, on retient le pic le plus proche du temps de référence. Il est accepté automatiquement seulement si le TR et le ratio passent les seuils de travail et si aucune alerte d’intégration ou de référence ne subsiste. Une cible n’est normalisée que si son ISTD est valide et d’aire positive. Les pics voisins, doubles pics et traitements de pics parasites non confirmés sont bloqués pour la calibration.
+Pour chaque échantillon, on retient le pic le plus proche du temps de référence. Il est accepté automatiquement seulement si le TR et le ratio passent les seuils de travail et si aucune alerte **bloquante** ne subsiste. Les alertes informatives restent affichées sans bloquer. Une cible n’est normalisée que si son ISTD est valide et d’aire positive. Le détail du classement des alertes est dans [docs/VALLEE_HAUTEUR.md](docs/VALLEE_HAUTEUR.md).
 
 Analogie donnée en cours : la gamme est le jeu d'entraînement, les SF le jeu de test, les BLPC l'application.
 
@@ -63,14 +67,19 @@ Analogie donnée en cours : la gamme est le jeu d'entraînement, les SF le jeu d
 ```text
 src/
   agilent_ms.py        lecture des data.ms Agilent et export d'un CSV par ion (time_min, intensity)
-  peaks.py             un pic : bruit, apex, bornes par double descente, aire
+  peaks.py             un pic : bruit, apex, bornes par double descente, aire, rapport vallée/hauteur
+  alerts.py            alertes bloquantes ou informatives et seuils expérimentaux
   reference.py         méthode (metadata.xlsx) et référence GAM-6 : TR et ratio de chaque composé
   measure.py           application de la référence à un échantillon (contrôles TR/ratio, réponse ISTD)
   run_reference.py     étape 1 : référence GAM-6
   run_batch.py         étape 2 : application de la référence aux 8 GAM et aux SF
   run_calibration.py   étapes 3-4 : calibration quadratique et contrôle SF
 app.py                 application Streamlit d'analyse visuelle (lit outputs/)
-tests/test_synthetic.py  validation sur chromatogrammes synthétiques à vérité connue
+tests/test_synthetic.py      validation sur chromatogrammes synthétiques à vérité connue
+tests/test_validation.py     garde-fous (inversion, ISTD, batchs, applicabilité)
+tests/test_alerts.py         classement des alertes et robustesse du rapport vallée/hauteur
+tests/caracteriser_vallee.py tableau de caractérisation repris dans docs/VALLEE_HAUTEUR.md
+archive/rendu_mardi/         prototype du premier rendu, historique (apporté par la PR #1)
 ```
 
 Pour lancer le pipeline :
@@ -82,6 +91,7 @@ python src/run_reference.py data/raw/20251103
 python src/run_batch.py data/raw/20251103
 python src/run_calibration.py
 streamlit run app.py
+python -m unittest discover -s tests -p "test_*.py"
 python tests/test_synthetic.py
 ```
 
@@ -112,6 +122,12 @@ Chaque décision indique son statut : **validée** (vérifiée sur les données 
 | D14 | Une alerte de référence, d’intégration ou d’ISTD bloque la normalisation et l’entrée en calibration | TR et ratio corrects ne prouvent pas la justesse de l’aire | Règle conservative testée ; procédure de validation manuelle à définir |
 | D15 | Un seul batch par exécution | Chaque batch doit conserver sa référence et ses résultats | Testée |
 | D16 | Une SF avec un pic douteux ou une inversion invalide est NON VALIDÉE | Un faible écart ne suffit pas pour accepter le résultat | Testée ; seuil SF métier encore provisoire |
+| D17 | Mode exploratoire (`--exploratory`) : réponse calculée si l’identité de la cible et de son ISTD est vérifiée, alertes conservées, aucune SF validée | Permettre le diagnostic quand le mode strict bloque | Testée |
+| D18 | Rapport vallée/hauteur `v = (L_borne − F)/(H − F)` ; une vallée est informative si `v <= 0,10`, bloquante sinon ; seuil configurable (`--valley-max`) | Une vallée signale un voisin, pas forcément un chevauchement. En simulation, aucun creux réel > 15 % n’est classé informatif, mais l’aire d’un pic non bloqué peut encore être fausse de 8 % à faible bruit (voir [VALLEE_HAUTEUR.md](docs/VALLEE_HAUTEUR.md)) | **Expérimental, à confirmer avec le professeur** ; ne prouve pas la justesse des aires |
+| D19 | Alertes séparées en bloquantes et informatives ; tout est bloquant par défaut ; seules les alertes bloquantes de la référence sont propagées | Remplace D14, qui bloquait toute alerte. Une attribution ambiguë, un pic réaffecté, un qualifiant douteux, `double_peak` et `median_despike` restent bloquants | Testée |
+| D20 | Borne au bord d’une fenêtre SIM informative si le signal résiduel est `<= 1 %` de la hauteur (`--edge-max`), bloquante sinon ; une borne « ligne de base » restée au-dessus de `valley_max` est bloquante (épaulement) | Un signal encore élevé au bord signifie une aire tronquée ; un épaulement non résolu a été observé en simulation à bruit élevé | Expérimental, à confirmer |
+
+D14 est remplacée par D19.
 
 D3 et D8 décrivent des mécanismes implémentés, dont la validation scientifique complète reste ouverte. D1 décrit une vérification rapportée précédemment, non rejouée pendant cet audit. Le nombre exact d’ions (29 dans les notes, 33 rapportés ici) reste à réconcilier à partir de l’acquisition et des exports.
 
@@ -135,7 +151,9 @@ Ces résultats ont été rapportés lors du développement précédent. L’audi
 1. La tolérance de ±0,2 % sur le TR s'applique-t-elle strictement aux bas niveaux de gamme, vu la dérive liée à la concentration ?
 2. Quelle tolérance d'acceptation pour les SF, et d'où vient l'écart systématique d'environ −9 % (nominal exact, préparation) ?
 3. Le ratio qualifiant/quantifiant doit-il être intégré sur des bornes communes ou indépendantes (D7) ?
-4. Quel est l'effet attendu de `double_peak` (Dibenz(a,h)anthracène, qui présente un épaulement, aujourd'hui inclus dans l'aire) et de `median_despike` (Indéno) ?
+4. Quel est l'effet attendu de `double_peak` (Dibenz(a,h)anthracène, qui présente un épaulement, aujourd'hui inclus dans l'aire) et de `median_despike` (Indéno) ? Tant qu'il n'est pas connu, ces deux HAP restent bloqués en mode strict.
+7. Le critère vallée/hauteur (seuil de 10 %) et le seuil de 1 % au bord des fenêtres SIM sont-ils acceptables, et quelle méthode de séparation attendre pour une coélution marquée (Benzo b/k) ?
+8. Pour la fiole de 10 ml : simple prélèvement de 1 ml, ou prélèvement puis complément à 10 ml (dilution par 10) ? Quel volume est injecté ?
 5. Les bornes de fin de pic sont larges sur les pics très intenses (jusqu'à 0,5 min de traînée). Faut-il les aligner sur MassHunter ? La comparaison bornes à bornes avec les QuantReports reste à faire.
 6. Peut-on versionner `outputs/` (résultats calculés, quelques Mo, sans données brutes) pour déployer l'application sur Streamlit Cloud ?
 
@@ -153,9 +171,26 @@ Ces résultats ont été rapportés lors du développement précédent. L’audi
 
 Voir [docs/AUDIT_ET_PLAN_GLOBAL.md](docs/AUDIT_ET_PLAN_GLOBAL.md) pour l’état de
 `main`, les rôles des deux PR, les tests exécutés et l’ordre de travail.
-`double_peak` et `median_despike` entraînent une alerte, mais leur correction
-numérique n’est pas encore implémentée. `coelution_order` reste à formaliser ;
-aucune déconvolution quantitative n’est prétendue validée.
+`coelution_order` reste à formaliser ; aucune déconvolution quantitative
+n’est prétendue validée.
+
+### Limites de `double_peak` et `median_despike`
+
+Ces deux colonnes de `metadata.xlsx` signalent un traitement particulier, mais
+leur règle n’a pas été donnée.
+
+- **`double_peak`** (Dibenz(a,h)anthracène) : le pic présente un épaulement
+  vers 14,72 min sur le m/z 278. L’intégration actuelle l’inclut dans l’aire,
+  sans savoir si la méthode attend la somme des deux pics, le seul pic
+  principal ou une autre règle.
+- **`median_despike`** (Indéno(1,2,3-cd)pyrène) : le nom suggère un filtre
+  médian contre les pics parasites, mais aucune largeur ni aucun seuil n’est
+  connu. Aucun filtrage n’est appliqué.
+
+Tant que ces règles ne sont pas confirmées, une alerte bloquante est levée.
+Ces deux HAP ne peuvent donc pas être calibrés en mode strict : 14 HAP sur 16
+au plus sont validables aujourd’hui. Le mode exploratoire les calcule en
+conservant l’alerte.
 
 ## 10. Rejeu reçu et distinction des calculs
 
@@ -169,3 +204,21 @@ identifications de la cible et de son ISTD passent les contrôles et leurs aires
 sont positives. Aucune concentration exploratoire n’est déclarée conforme.
 La justesse des aires coéluées n’est pas corrigée par ce changement.
 Voir [ANALYSE_REJEU_GAM6.md](docs/ANALYSE_REJEU_GAM6.md).
+
+## 11. Alertes graduées (D18 à D20)
+
+Le blocage de toute vallée (D14) empêchait toute réponse stricte sur le rejeu
+réel. Les alertes sont désormais classées : une vallée peu profonde
+(`v <= 10 %`) ou un bord SIM à signal résiduel faible (`<= 1 %`) devient
+informatif ; tout le reste reste bloquant. Les mesures de GAM-6 rapportées
+dans l’analyse du rejeu montrent que les Benzo(b)/(k)fluoranthènes forment
+le chevauchement le plus marqué parmi les paires examinées (creux d’environ
+50 %), alors que Phénanthrène/Anthracène et Benzo(a)anthracène/Chrysène
+reviennent presque au fond (1 à 2 %). Cela ne garantit pas le même
+comportement dans tous les échantillons ni à toutes les concentrations, d’où
+le recalcul du rapport sur chaque échantillon.
+
+Le seuil de 10 % est une hypothèse à tester. En simulation, il bloque tous
+les creux supérieurs à 15 %, mais un pic non bloqué peut encore avoir une
+aire fausse de quelques pourcents. Le batch réel doit être rejoué avec cette
+version avant de conclure : les nombres de la section 6 restent historiques.

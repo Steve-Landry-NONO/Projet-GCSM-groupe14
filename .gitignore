@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Projet GC-MS ---
+# Données brutes (dossiers .D, archives, metadata) : jamais versionnées sans accord du groupe
+data/
+*.D/
+*.zip
+# Résultats calculés par le pipeline (versionnement à décider en groupe, cf. CONTEXTE_PROJET.md)
+outputs/

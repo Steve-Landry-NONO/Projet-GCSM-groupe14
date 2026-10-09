@@ -10,13 +10,13 @@ Un laboratoire mesure la concentration de 16 HAP (hydrocarbures aromatiques poly
 
 ### La chaîne physique
 
-1. L'échantillon de terre est dissous dans un solvant, l'hexane. On n'injecte qu'une petite partie de la solution (par exemple 1 ml dans une fiole de 10 ml, d'où un facteur de dilution).
+1. Les molécules sont extraites de la terre avec un solvant, ici l’hexane. On prélève une partie de l’extrait, puis on injecte un volume défini par la méthode. Prélever 1 ml sur 10 ml ne change pas la concentration : un prélèvement n’est pas une dilution. Les volumes de préparation et d’injection restent à confirmer.
 2. **Chromatographie** : la solution traverse une colonne capillaire (silice, environ 20 m) placée dans un four. Les HAP adhèrent plus ou moins à la paroi et sortent à des temps différents : c'est le **temps de rétention**.
 3. **Spectrométrie de masse** : chaque molécule qui sort est fragmentée et ionisée. Le détecteur compte les fragments selon leur rapport masse/charge (**m/z**). Chaque molécule a une empreinte de fragmentation propre (sa « loi de probabilité » de fragmentation).
 
 ### Deux invariants à retenir
 
-- **Le temps de rétention absolu varie** avec l'état de la colonne (dépôts, usure) et, on l'a vérifié, avec la concentration. **L'ordre de sortie, lui, ne change pas.**
+- **Le temps de rétention observé peut varier** avec les conditions et la méthode. Une tendance avec le niveau GAM a été rapportée, mais sa cause n’est pas démontrée. L’ordre de sortie est un repère pour cette méthode, pas une propriété universelle indépendante de la colonne et des conditions.
 - Il faut séparer deux types de données : les **invariants** de la littérature (ions caractéristiques, ordre d'élution) et les **données d'expérience** (signaux mesurés, temps observés).
 
 ### Vocabulaire
@@ -43,7 +43,7 @@ Un laboratoire mesure la concentration de 16 HAP (hydrocarbures aromatiques poly
 
 La réponse est le rapport **aire quantifiant du composé / aire quantifiant de son ISTD**.
 
-Pour chaque échantillon, on retient le pic le plus proche du temps de référence. Il est accepté si son TR est dans ±0,2 % et son ratio dans ±23 % de la référence.
+Pour chaque échantillon, on retient le pic le plus proche du temps de référence. Il est accepté automatiquement seulement si le TR et le ratio passent les seuils de travail et si aucune alerte d’intégration ou de référence ne subsiste. Une cible n’est normalisée que si son ISTD est valide et d’aire positive. Les pics voisins, doubles pics et traitements de pics parasites non confirmés sont bloqués pour la calibration.
 
 Analogie donnée en cours : la gamme est le jeu d'entraînement, les SF le jeu de test, les BLPC l'application.
 
@@ -78,8 +78,8 @@ Pour lancer le pipeline :
 ```bash
 python -m venv .venv && source .venv/bin/activate
 python -m pip install -r requirements.txt
-python src/run_reference.py data/raw
-python src/run_batch.py data/raw
+python src/run_reference.py data/raw/20251103
+python src/run_batch.py data/raw/20251103
 python src/run_calibration.py
 streamlit run app.py
 python tests/test_synthetic.py
@@ -100,22 +100,35 @@ Chaque décision indique son statut : **validée** (vérifiée sur les données 
 | D7 | Le qualifiant est intégré sur les bornes du quantifiant, resserrées aux vallées du qualifiant | Avec des bornes indépendantes, le ratio est sous-estimé quand le signal est bruité (jusqu'à −14 % en simulation) | Provisoire. L'appli du prof semble utiliser des bornes indépendantes. |
 | D8 | Affectation des pics par ordre d'élution, avec contrôle croisé entre m/z | Seul invariant fiable. Ce contrôle a corrigé le Chrysène-D12, confondu avec le surrogat du m/z 240 avant l'ajout des surrogats. | Validée |
 | D9 | Calibration quadratique pondérée en 1/x | Méthode affichée dans les rapports MassHunter | Validée par comparaison (voir 6) |
-| D10 | Inversion : plus petite racine positive dans le domaine de la gamme ; hors domaine signalé, jamais extrapolé en silence | Cohérence physique | Validée |
+| D10 | Inversion : plus petite racine positive dans le domaine de la gamme ; hors domaine signalé, jamais extrapolé en silence | Cette règle sélectionnait parfois la mauvaise branche et ignorait la borne basse | Remplacée par D13 |
 | D11 | Tolérance SF fixée à ±20 % | Valeur de travail pour faire tourner le calcul | **À confirmer avec le cahier des charges** |
 | D12 | Nominal SF = 1 ppm, facteur de dilution = 1 pour GAM et SF | Cours et inventaire du 5 octobre | À confirmer |
 
-## 6. Résultats au 9 octobre 2026 (batch 20251103)
+### Décisions ajoutées après l’audit du 9 octobre
+
+| # | Décision | Justification | Statut |
+| --- | --- | --- | --- |
+| D13 | Inversion uniquement d’une courbe croissante sur la gamme ; sélectionner la racine à pente positive et contrôler les deux bornes | Éviter une racine incorrecte ou une extrapolation annoncée valide | Testée sur exemples synthétiques |
+| D14 | Une alerte de référence, d’intégration ou d’ISTD bloque la normalisation et l’entrée en calibration | TR et ratio corrects ne prouvent pas la justesse de l’aire | Règle conservative testée ; procédure de validation manuelle à définir |
+| D15 | Un seul batch par exécution | Chaque batch doit conserver sa référence et ses résultats | Testée |
+| D16 | Une SF avec un pic douteux ou une inversion invalide est NON VALIDÉE | Un faible écart ne suffit pas pour accepter le résultat | Testée ; seuil SF métier encore provisoire |
+
+D3 et D8 décrivent des mécanismes implémentés, dont la validation scientifique complète reste ouverte. D1 décrit une vérification rapportée précédemment, non rejouée pendant cet audit. Le nombre exact d’ions (29 dans les notes, 33 rapportés ici) reste à réconcilier à partir de l’acquisition et des exports.
+
+## 6. Résultats historiques avant les corrections (batch 20251103)
+
+Ces résultats ont été rapportés lors du développement précédent. L’audit du 9 octobre n’a pas rejoué les fichiers instrumentaux du laboratoire. Les nombres ci-dessous doivent être recalculés avec les nouveaux garde-fous ; ils ne décrivent pas la conformité actuelle.
 
 - **Référence** : 23 composés sur 23, chacun avec un TR et un ratio de référence. Les TR suivent exactement l'ordre de `metadata.xlsx`.
 - **Gamme** : 181 mesures conformes sur 184. Les 3 exceptions sont le Fluorène et l'Anthracène en GAM-1 et GAM-2, à +0,22 à +0,25 % de TR, avec un ratio correct.
 - **Constat sur le TR** :
   - le TR baisse régulièrement quand la concentration augmente, pour presque tous les composés (environ +0,25 % à 0,025 ppm, environ −0,1 % à 5 ppm) ;
-  - le Pérylène-D12, qui ne coélue avec rien, ne bouge pas : c'est un effet de la concentration, pas de la colonne ;
+  - le Pérylène-D12 a été rapporté stable ; cette comparaison ne permet pas à elle seule d’isoler la cause de la dérive ;
   - c'est cohérent avec la remarque du cours (« le temps de passage dépend de la charge ») ;
   - l'exception est le Benzo(k)fluoranthène aux deux plus bas niveaux, où l'écart s'inverse (probable effet de la coélution avec le Benzo(b), à vérifier visuellement).
-- **Calibration** : R² d'au moins 0,9997 pour les 16 HAP. Les réponses sont à ±5 % de celles de MassHunter et les coefficients b sont proches (Naphtalène 1,169 contre 1,195 ; Chrysène 1,261 contre 1,278). L'intégration est donc validée par le logiciel du labo.
+- **Calibration** : R² d'au moins 0,9997 pour les 16 HAP. Les réponses sont à ±5 % de celles de MassHunter et les coefficients b sont proches (Naphtalène 1,169 contre 1,195 ; Chrysène 1,261 contre 1,278). C’est un accord encourageant, qui ne valide pas toutes les bornes ni la séparation des aires coéluées.
 - **SF** : la concentration retrouvée est de 0,88 à 0,99 ppm pour un nominal de 1 ppm, soit environ −9 % sur tous les HAP. Les 64 résultats sont PASS à ±20 %, mais cet écart systématique est à expliquer.
-- **Étalons internes** : leurs aires restent dans ±7 % sur la gamme. Elles baissent sur les SF (0,85 à 0,95 de GAM-6), signe d'une perte de sensibilité au fil de la séquence, que la normalisation corrige.
+- **Étalons internes** : leurs aires restent dans ±7 % sur la gamme. Elles baissent sur les SF (0,85 à 0,95 de GAM-6), plusieurs causes sont possibles (préparation, injection, sensibilité). La normalisation vise à compenser les variations communes, sans prouver leur cause.
 
 ## 7. Questions ouvertes (à poser au prof)
 
@@ -134,3 +147,12 @@ Chaque décision indique son statut : **validée** (vérifiée sur les données 
 - Une contradiction entre une information orale, une ancienne analyse et le cahier des charges ou les données est signalée, pas tranchée en silence.
 - Le travail passe par une branche et une PR relue par au moins un membre (voir `CONTRIBUTING.md`). Les audits d'assistant se font sur la PR.
 - Les données brutes ne sont jamais versionnées.
+
+
+## 9. Contexte global et suite
+
+Voir [docs/AUDIT_ET_PLAN_GLOBAL.md](docs/AUDIT_ET_PLAN_GLOBAL.md) pour l’état de
+`main`, les rôles des deux PR, les tests exécutés et l’ordre de travail.
+`double_peak` et `median_despike` entraînent une alerte, mais leur correction
+numérique n’est pas encore implémentée. `coelution_order` reste à formaliser ;
+aucune déconvolution quantitative n’est prétendue validée.

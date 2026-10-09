@@ -14,7 +14,7 @@ Pour reprendre le projet, commencer par [CONTEXTE_PROJET.md](CONTEXTE_PROJET.md)
 - Ludovic TUEKAM — `@ludovictuekam9-hue`
 - Radia GHILAS — `@radiaghilas`
 - Harald MAFORIKAN — `@harald8`
-- Ismaila DIEYE
+- Ismaila DIEYE — `@ismailadieye-iage2`
 
 Encadrement et relecture : `@HorHakim` et `@Septentrion`.
 
@@ -113,8 +113,8 @@ python -m venv .venv
 source .venv/bin/activate          # Windows : .venv\Scripts\activate.bat
 python -m pip install -r requirements.txt
 
-python src/run_reference.py data/raw     # 1. référence GAM-6 : TR et ratio de référence
-python src/run_batch.py data/raw         # 2. mesures des 8 GAM et des SF par rapport à la référence
+python src/run_reference.py data/raw/20251103     # 1. référence GAM-6 : TR et ratio de référence
+python src/run_batch.py data/raw/20251103         # 2. mesures des 8 GAM et des SF par rapport à la référence
 python src/run_calibration.py            # 3-4. calibration quadratique (1/x) et contrôle SF
 streamlit run app.py                     # analyse visuelle
 python tests/test_synthetic.py           # validation sur signaux synthétiques
@@ -143,8 +143,8 @@ Le notebook contient les données de synthèse nécessaires à ses graphiques. L
 - [x] Produire un PDF, un Markdown et un notebook commenté.
 - [x] Extraire les signaux séparés par ion depuis les dossiers `.D`.
 - [x] Construire les références à partir de GAM-6 (23 composés).
-- [x] Mesurer la gamme GAM par rapport à la référence (181 mesures conformes sur 184).
-- [x] Recalculer les calibrations pour chaque HAP (R² ≥ 0,9997, cohérentes avec MassHunter).
+- [x] Implémenter la mesure de la gamme GAM ; résultats à recalculer après les garde-fous.
+- [x] Implémenter les calibrations ; leur validité dépend désormais des points sans alerte.
 - [ ] Valider les SF : calcul fait, tolérance et écart systématique d'environ −9 % à confirmer.
 - [ ] Confirmer les règles d'intégration et les tolérances métier (voir les questions ouvertes de CONTEXTE_PROJET.md).
 - [ ] Quantifier les échantillons inconnus (BLPC) et documenter les incertitudes.
@@ -160,3 +160,25 @@ Le notebook contient les données de synthèse nécessaires à ses graphiques. L
 ## Règles de contribution
 
 Les règles simples de travail, les noms de branches et la convention de messages de commit sont décrits dans [CONTRIBUTING.md](CONTRIBUTING.md). Les fichiers sources modifiables doivent être mis à jour avant les exports PDF ou HTML correspondants.
+
+
+## Audit et plan commun des branches
+
+Le [plan global](docs/AUDIT_ET_PLAN_GLOBAL.md) compare `main`, le premier rendu
+GAM-6 (PR #1) et le pipeline (PR #2). Les résultats historiques restent consultables,
+mais doivent être régénérés avant une nouvelle conclusion scientifique.
+
+Le traitement refuse plusieurs batchs à la fois. Une alerte sur le pic, la référence
+ou l’ISTD bloque l’usage automatique de la réponse en calibration. Les points exclus
+restent dans `calibration_points.csv`, avec leur motif. Le statut `ok` d’une courbe
+indique ici un ajustement calculable et croissant, pas une validation complète du laboratoire.
+Les coélutions, doubles pics et filtres de pics parasites demandent encore une validation métier.
+
+```bash
+python -m unittest discover -s tests -p test_validation.py -v
+python tests/test_synthetic.py
+```
+
+L’application affiche les graphiques en noir et blanc, avec Calibri si la police est
+installée (Arial en repli). Le succès du test synthétique concerne les aires isolées
+et le signalement des limites : il ne valide pas les aires coéluées.

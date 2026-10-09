@@ -19,7 +19,11 @@
 
 Aucune tolérance métier (±0,2 %, ±23 %, etc.) n'est appliquée dans ce rendu : ces valeurs doivent être confirmées par une source métier avant d'être utilisées comme critères de conformité.
 
-## Résultats
+## Résultats historiques du premier calcul
+
+Ces valeurs sont conservées pour tracer le travail initial. Elles n’ont pas été recalculées lors de la correction du 9 octobre. Elles ne constituent pas une validation de la quantification. Le contrôle « OK » signifie ici absence d’alerte rapportée dans le premier rendu ; les coélutions et doubles pics restent à examiner.
+
+## Tableau du premier rendu
 
 | Composé | m/z quant | m/z qual | RT réf. (min) | Ratio qual/quanti | Contrôle |
 |---|---:|---:|---:|---:|---|
@@ -45,3 +49,25 @@ Aucune tolérance métier (±0,2 %, ±23 %, etc.) n'est appliquée dans ce rendu
 - `Benzo(b)fluoranthene` et `Benzo(k)fluoranthene` sont très proches sur m/z 252/253 : la séparation se fait à la vallée entre les deux pics.
 - `Dibenz(a,h)anthracene` est marqué `double_peak` dans les metadata : le pic retenu ici est le pic principal ; ce cas doit être confronté à la règle métier attendue.
 - Les avertissements d'affectation indiquent qu'un contrôle visuel reste recommandé avant de figer définitivement les références.
+
+
+## Reprendre ce travail
+
+Ce module est le prototype historique, avec des bornes qualifiantes indépendantes.
+Le pipeline de la PR #2 utilise une autre convention configurable : les résultats
+ne doivent pas être mélangés sans conserver le nom et la version de la méthode.
+Après fusion des deux PR, le point d'entrée courant sera `src/run_reference.py`.
+
+Installer les dépendances avec `python -m pip install -r requirements-gam6.txt`.
+Vérifier les cas élémentaires avec :
+
+```bash
+python -m unittest discover -s tests -p test_gam6_reference.py -v
+```
+
+Les corrections conservent une ligne et une alerte si le quantifiant manque,
+si le qualifiant manque ou si sa fenêtre ne recouvre pas celle du quantifiant.
+Le calcul d'aire fonctionne avec NumPy 1.x et 2.x. Le lecteur Agilent est identique
+sur les deux branches pour préparer leur fusion.
+
+Le [plan global](AUDIT_ET_PLAN_GLOBAL.md) décrit les limites et la suite du projet.

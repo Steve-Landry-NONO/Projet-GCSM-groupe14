@@ -86,7 +86,7 @@ def measure_peak(prep, traces, apex, mzq, mzl, *, min_snr=10.0, baseline="min_bo
     if "limite" in (pq.left_stop, pq.right_stop):
         warn.append("borne non trouvée (largeur maximale atteinte)")
     if "fin_signal" in (pq.left_stop, pq.right_stop):
-        warn.append("traînée coupée par la fin de la fenêtre SIM")
+        warn.append("borne au bord de la fenêtre SIM : aire à examiner")
     if pd.isna(mzl) or int(mzl) not in traces:
         warn.append(f"m/z qualifiant {mzl} absent")
         return pq, None, warn

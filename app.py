@@ -240,13 +240,15 @@ with tabs[3]:
         st.info("Lance src/run_calibration.py.")
     elif compound not in set(cal["name"]):
         st.info(f"{compound} n'est pas calibré (étalon interne ou surrogat). Choisis un HAP cible.")
-    elif cal.set_index("name").loc[compound, "status"] != "ok":
+    elif cal.set_index("name").loc[compound, "status"] not in ("ok", "exploratoire"):
         st.warning("Calibration non exploitable : " + str(cal.set_index("name").loc[compound, "status"]))
         st.dataframe(cal, hide_index=True)
     elif pts is None:
         st.warning("Points de calibration absents : relance le calcul.")
     else:
         k = cal.set_index("name").loc[compound]
+        if k["status"] == "exploratoire":
+            st.warning("Calibration exploratoire : concentrations non validées")
         p = pts[pts["name"] == compound]
         if "included" in p:
             p = p[p["included"].eq(True)]
@@ -293,7 +295,7 @@ with tabs[4]:
         tol = st.slider("Tolérance d'acceptation (± %)", 5, 40, 20, 1,
                         help="Valeur provisoire : la tolérance officielle reste à confirmer avec le cahier des charges.")
         s = sf.copy()
-        s["verdict"] = s.apply(lambda r: sf_verdict(r.get("peak_status"), r.get("inversion"),
+        s["verdict"] = s.apply(lambda r: "NON VALIDÉ (exploratoire)" if r.get("calibration_status") == "exploratoire" else sf_verdict(r.get("peak_status"), r.get("inversion"),
                                                       r.get("ecart_pct", np.nan), tol), axis=1)
         n_pass = (s["verdict"] == "PASS").sum()
         c1, c2, c3 = st.columns(3)

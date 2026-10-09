@@ -76,6 +76,8 @@ def main() -> None:
     ap.add_argument("--sf-tol", type=float, default=0.20,
                     help="écart relatif accepté sur les SF (défaut 0,20 = ±20 %%, PROVISOIRE)")
     ap.add_argument("--weight", choices=["1/x", "aucune"], default="1/x")
+    ap.add_argument("--exploratory", action="store_true",
+                    help="calcul diagnostic avec alertes conservées ; aucune SF validée")
     args = ap.parse_args()
 
     batches = [d for d in args.out.iterdir() if (d / "peaks.csv").exists()] if args.out.exists() else []
@@ -86,6 +88,11 @@ def main() -> None:
                          else "Aucun peaks.csv : lance d'abord run_reference.py puis run_batch.py")
     out = batches[0]
     peaks = pd.read_csv(out / "peaks.csv")
+    if args.exploratory:
+        required = {"response_exploratory", "identity_ok", "istd_identity_ok"}
+        if not required.issubset(peaks.columns):
+            raise SystemExit("Relance run_batch.py pour obtenir les réponses exploratoires")
+        peaks["response"] = peaks["response_exploratory"]
     targets = peaks[peaks["istd"].notna() & (peaks["istd"] != "")]
 
     gam = targets[targets["type"] == "GAM"]
@@ -94,22 +101,26 @@ def main() -> None:
         all_points = d.copy()
         valid = (d["status"].eq("OK") & np.isfinite(d["response"])
                  & np.isfinite(d["conc_nominal_ppm"]) & d["conc_nominal_ppm"].gt(0))
-        if "istd_status" in d:
+        if args.exploratory:
+            valid = (d["identity_ok"].eq(True) & d["istd_identity_ok"].eq(True)
+                     & np.isfinite(d["response"]) & np.isfinite(d["conc_nominal_ppm"])
+                     & d["conc_nominal_ppm"].gt(0))
+        if not args.exploratory and "istd_status" in d:
             valid &= d["istd_status"].eq("OK")
-        if "warning" in d:
+        if not args.exploratory and "warning" in d:
             valid &= d["warning"].fillna("").str.strip().eq("")
         d = d[valid].sort_values("conc_nominal_ppm")
         for _, excluded in all_points.loc[~valid].iterrows():
             pt_rows.append({"name": name, "sample": excluded["sample"], "level": excluded["level"],
                             "conc_nominal_ppm": excluded["conc_nominal_ppm"], "response": excluded["response"],
-                            "status_point": excluded["status"], "included": False,
+                            "status_point": excluded["status"], "warning": excluded.get("warning"), "included": False,
                             "exclusion_reason": "mesure ou ISTD non validé"})
         x, y = d["conc_nominal_ppm"].to_numpy(float), d["response"].to_numpy(float)
         if d["conc_nominal_ppm"].nunique() < 4:
             for _, r in d.iterrows():
                 pt_rows.append({"name": name, "sample": r["sample"], "level": r["level"],
                     "conc_nominal_ppm": r["conc_nominal_ppm"], "response": r["response"],
-                    "status_point": r["status"], "included": False,
+                    "status_point": r["status"], "warning": r.get("warning"), "included": False,
                     "exclusion_reason": "moins de quatre concentrations distinctes valides"})
             cal_rows.append({"name": name, "status": f"{d.conc_nominal_ppm.nunique()} concentrations valides seulement"})
             continue
@@ -121,23 +132,23 @@ def main() -> None:
                             "conc_nominal_ppm": r["conc_nominal_ppm"], "response": r["response"],
                             "response_fit": float(np.polyval(coef, r["conc_nominal_ppm"])),
                             "conc_backcalc_ppm": bc, "ecart_pct": e,
-                            "status_point": r["status"], "included": True})
+                            "status_point": r["status"], "warning": r.get("warning"), "included": True})
         cal_rows.append({"name": name, "istd": d["istd"].iloc[0], "a": coef[0], "b": coef[1],
                          "c": coef[2], "r2": r_squared(x, y, coef), "n_points": len(d),
                          "ecart_max_pct": float(np.nanmax(np.abs(err))) if np.isfinite(err).any() else np.nan,
                          "c_min_ppm": x.min(), "c_max_ppm": x.max(), "ponderation": args.weight,
-                         "status": "ok" if min(2 * coef[0] * x.min() + coef[1],
+                         "status": ("exploratoire" if args.exploratory else "ok") if min(2 * coef[0] * x.min() + coef[1],
                                                    2 * coef[0] * x.max() + coef[1]) > 0
                                   else "courbe non croissante"})
     cal = pd.DataFrame(cal_rows).reindex(columns=["name", "istd", "a", "b", "c", "r2", "n_points",
         "ecart_max_pct", "c_min_ppm", "c_max_ppm", "ponderation", "status"])
     cal.to_csv(out / "calibrations.csv", index=False, float_format="%.6g")
     points = pd.DataFrame(pt_rows).reindex(columns=["name", "sample", "level", "conc_nominal_ppm",
-        "response", "response_fit", "conc_backcalc_ppm", "ecart_pct", "status_point", "included", "exclusion_reason"])
+        "response", "response_fit", "conc_backcalc_ppm", "ecart_pct", "status_point", "warning", "included", "exclusion_reason"])
     points.to_csv(out / "calibration_points.csv", index=False, float_format="%.6g")
 
     sf_rows = []
-    coefs = {r["name"]: r for _, r in cal.iterrows() if r.get("status") == "ok"}
+    coefs = {r["name"]: r for _, r in cal.iterrows() if r.get("status") == ("exploratoire" if args.exploratory else "ok")}
     for _, r in targets[targets["type"] == "SF"].iterrows():
         row = {"sample": r["sample"], "name": r["name"], "response": r["response"],
                "conc_nominal_ppm": r["conc_nominal_ppm"], "peak_status": r["status"]}
@@ -149,11 +160,12 @@ def main() -> None:
         mult = float(r["multiplier"]) if "multiplier" in r and pd.notna(r["multiplier"]) else 1.0
         final = conc * mult
         err = (final - r["conc_nominal_ppm"]) / r["conc_nominal_ppm"]
-        status = sf_verdict(r["status"], why, 100 * err, 100 * args.sf_tol)
+        status = "NON VALIDÉ (exploratoire)" if args.exploratory else sf_verdict(r["status"], why, 100 * err, 100 * args.sf_tol)
         sf_rows.append({**row, "conc_calc_ppm": conc, "multiplier": mult, "conc_final_ppm": final,
-                        "ecart_pct": 100 * err, "inversion": why, "sf_status": status})
+                        "ecart_pct": 100 * err, "inversion": why, "sf_status": status,
+                        "calibration_status": k["status"]})
     sf = pd.DataFrame(sf_rows).reindex(columns=["sample", "name", "response", "conc_nominal_ppm",
-        "peak_status", "conc_calc_ppm", "multiplier", "conc_final_ppm", "ecart_pct", "inversion", "sf_status"])
+        "peak_status", "conc_calc_ppm", "multiplier", "conc_final_ppm", "ecart_pct", "inversion", "sf_status", "calibration_status"])
     sf.to_csv(out / "sf_results.csv", index=False, float_format="%.6g")
 
     plot(cal, points, sf, out / "calibration_courbes.png")
@@ -173,7 +185,7 @@ def plot(cal, pts, sf, path):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    ok = cal[cal.get("status", "ok") == "ok"]
+    ok = cal[cal["status"].isin(["ok", "exploratoire"])]
     cols = 4
     if ok.empty:
         path.unlink(missing_ok=True)
@@ -193,6 +205,8 @@ def plot(cal, pts, sf, path):
         ax.tick_params(labelsize=7); ax.legend(fontsize=6)
     for ax in list(axes.flat)[len(ok):]:
         ax.axis("off")
+    if cal["status"].eq("exploratoire").any():
+        fig.suptitle("Calcul exploratoire : aires et concentrations non validées", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)

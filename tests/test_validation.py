@@ -140,6 +140,30 @@ class ValidationTests(unittest.TestCase):
             self.assertNotEqual(cal.iloc[0].status, 'ok')
             self.assertFalse(pts.included.any())
 
+    def test_exploratory_keeps_alert_and_strict_block(self):
+        self.ref.loc[0, 'warning'] = 'vallée à examiner'
+        d = measure_sample(self.traces, self.ref, self.compounds).set_index('name')
+        self.assertTrue(np.isnan(d.loc['cible', 'response']))
+        self.assertAlmostEqual(d.loc['cible', 'response_exploratory'], 1.)
+        self.assertEqual(d.loc['cible', 'status'], 'à vérifier')
+
+    def test_exploratory_calibration_never_validates_sf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = Path(tmp) / 'batch'; batch.mkdir()
+            rows = [dict(name='cible', istd='étalon', sample=f'GAM-{i}', type='GAM',
+                level=i, conc_nominal_ppm=x, response=np.nan, response_exploratory=x,
+                status='à vérifier', warning='vallée', identity_ok=True, istd_identity_ok=True)
+                for i,x in enumerate([.025,.05,.1,1],1)]
+            rows.append(dict(rows[-1], sample='SF-1', type='SF'))
+            pd.DataFrame(rows).to_csv(batch / 'peaks.csv', index=False)
+            run = subprocess.run([sys.executable,str(ROOT/'src/run_calibration.py'),
+                '--out',tmp,'--exploratory'],capture_output=True,text=True)
+            self.assertEqual(run.returncode,0,run.stderr)
+            cal=pd.read_csv(batch/'calibrations.csv'); sf=pd.read_csv(batch/'sf_results.csv')
+            self.assertEqual(cal.iloc[0].status,'exploratoire')
+            self.assertEqual(sf.iloc[0].sf_status,'NON VALIDÉ (exploratoire)')
+            self.assertAlmostEqual(sf.iloc[0].conc_calc_ppm,1.)
+
 
 if __name__ == '__main__':
     unittest.main()

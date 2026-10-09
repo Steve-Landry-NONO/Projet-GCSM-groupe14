@@ -156,3 +156,16 @@ Voir [docs/AUDIT_ET_PLAN_GLOBAL.md](docs/AUDIT_ET_PLAN_GLOBAL.md) pour l’état
 `double_peak` et `median_despike` entraînent une alerte, mais leur correction
 numérique n’est pas encore implémentée. `coelution_order` reste à formaliser ;
 aucune déconvolution quantitative n’est prétendue validée.
+
+## 10. Rejeu reçu et distinction des calculs
+
+Le rejeu réel partagé le 9 octobre contient 192 mesures cibles GAM/SF :
+189 passent le TR, 192 passent le ratio, mais aucune réponse stricte n’est
+autorisée à cause des alertes de référence, d’intégration ou d’ISTD.
+
+La règle D14 reste celle du mode strict. D17 ajoute un mode diagnostic explicite
+qui conserve les alertes et calcule une réponse exploratoire lorsque les
+identifications de la cible et de son ISTD passent les contrôles et leurs aires
+sont positives. Aucune concentration exploratoire n’est déclarée conforme.
+La justesse des aires coéluées n’est pas corrigée par ce changement.
+Voir [ANALYSE_REJEU_GAM6.md](docs/ANALYSE_REJEU_GAM6.md).

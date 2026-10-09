@@ -182,3 +182,16 @@ python tests/test_synthetic.py
 L’application affiche les graphiques en noir et blanc, avec Calibri si la police est
 installée (Arial en repli). Le succès du test synthétique concerne les aires isolées
 et le signalement des limites : il ne valide pas les aires coéluées.
+
+## Calcul exploratoire après le rejeu
+
+Voir [l’analyse de GAM-6](docs/ANALYSE_REJEU_GAM6.md). Une vallée ou une fin de
+fenêtre reste une alerte, sans prouver à elle seule une erreur d’aire.
+`response_exploratory` permet un diagnostic si la cible et son ISTD passent
+les contrôles TR/ratio et ont des aires positives et finies. Les alertes restent
+visibles ; la réponse stricte reste bloquée.
+
+`run_calibration.py --exploratory` utilise cette réponse uniquement pour comparer
+les courbes. Les calibrations sont marquées `exploratoire` et toutes les SF
+calculées `NON VALIDÉ (exploratoire)`, même avec un faible écart. Utiliser un
+dossier de sortie distinct des résultats stricts. Les seuils ne sont pas élargis.

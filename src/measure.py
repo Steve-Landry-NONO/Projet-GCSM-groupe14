@@ -83,7 +83,7 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
         rows.append(row)
     out = pd.DataFrame(rows)
     # On conserve toutes les lignes, même lorsque rien n'a été détecté.
-    for col in ("area_quant", "rt", "ratio", "warning"):
+    for col in ("area_quant", "rt", "ratio", "rt_ok", "ratio_ok", "warning"):
         if col not in out:
             out[col] = np.nan if col != "warning" else ""
     # Deux cibles ne doivent pas utiliser le même sommet sur un ion partagé.
@@ -101,6 +101,15 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
              & out["area_quant"].gt(0) & out["area_istd"].gt(0))
     out["response"] = np.nan
     out.loc[valid, "response"] = out.loc[valid, "area_quant"] / out.loc[valid, "area_istd"]
+    # Une réponse exploratoire conserve le calcul sans certifier son aire.
+    out["identity_ok"] = out["rt_ok"].eq(True) & out["ratio_ok"].eq(True) & ~duplicated
+    identity = out.set_index("name")["identity_ok"].to_dict()
+    out["istd_identity_ok"] = out["istd"].map(identity).eq(True)
+    exploratory = (out["identity_ok"] & out["istd_identity_ok"]
+                   & np.isfinite(out["area_quant"]) & np.isfinite(out["area_istd"])
+                   & out["area_quant"].gt(0) & out["area_istd"].gt(0))
+    out["response_exploratory"] = np.nan
+    out.loc[exploratory, "response_exploratory"] = out.loc[exploratory, "area_quant"] / out.loc[exploratory, "area_istd"]
     has_istd = out["istd"].ne("")
     out.loc[has_istd & ~out["istd_status"].eq("OK") & out["status"].eq("OK"), "status"] = "ISTD à vérifier"
     return out

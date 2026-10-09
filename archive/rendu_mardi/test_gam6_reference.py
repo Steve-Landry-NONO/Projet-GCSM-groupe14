@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 import numpy as np
 import pandas as pd
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+# Le prototype est archivé à côté de ce test.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gam6_reference import compute_reference
 
 class ReferenceTests(unittest.TestCase):

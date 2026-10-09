@@ -58,11 +58,11 @@ Le pipeline de la PR #2 utilise une autre convention configurable : les résulta
 ne doivent pas être mélangés sans conserver le nom et la version de la méthode.
 Après fusion des deux PR, le point d'entrée courant sera `src/run_reference.py`.
 
-Installer les dépendances avec `python -m pip install -r requirements-gam6.txt`.
+Installer les dépendances depuis la racine du dépôt avec `python -m pip install -r archive/rendu_mardi/requirements-gam6.txt`.
 Vérifier les cas élémentaires avec :
 
 ```bash
-python -m unittest discover -s tests -p test_gam6_reference.py -v
+python -m unittest discover -s archive/rendu_mardi -p test_gam6_reference.py -v
 ```
 
 Les corrections conservent une ligne et une alerte si le quantifiant manque,
@@ -70,4 +70,4 @@ si le qualifiant manque ou si sa fenêtre ne recouvre pas celle du quantifiant.
 Le calcul d'aire fonctionne avec NumPy 1.x et 2.x. Le lecteur Agilent est identique
 sur les deux branches pour préparer leur fusion.
 
-Le [plan global](AUDIT_ET_PLAN_GLOBAL.md) décrit les limites et la suite du projet.
+Le [plan global](../../docs/AUDIT_ET_PLAN_GLOBAL.md) décrit les limites et la suite du projet. La provenance de ces fichiers est décrite dans le [README de l'archive](README.md).

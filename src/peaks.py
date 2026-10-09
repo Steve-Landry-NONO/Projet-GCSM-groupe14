@@ -100,6 +100,13 @@ def integrate_peak(t, y, apex, *, ys=None, sigma=None, baseline="min_bornes", bo
     baseline = 'min_bornes' : horizontale au plus bas des deux bornes (convention de
                l'application de démonstration) ; 'lineaire' : droite entre les bornes.
     """
+    t, y = np.asarray(t, float), np.asarray(y, float)
+    if t.ndim != 1 or y.ndim != 1 or len(t) != len(y) or len(t) < 3:
+        raise ValueError("Une trace doit contenir au moins trois couples temps/intensité")
+    if not np.isfinite(t).all() or not np.isfinite(y).all() or not (np.diff(t) > 0).all():
+        raise ValueError("Temps strictement croissants et valeurs finies requis")
+    if not 0 <= apex < len(t):
+        raise ValueError("Apex hors de la trace")
     ys = smooth(y) if ys is None else ys
     sigma = noise_sigma(y) if sigma is None else sigma
     dt = float(np.median(np.diff(t)))
@@ -119,6 +126,8 @@ def integrate_peak(t, y, apex, *, ys=None, sigma=None, baseline="min_bornes", bo
         il, ir = min(il, apex), max(ir, apex)
     else:
         il, ir = np.searchsorted(t, bounds[0]), min(np.searchsorted(t, bounds[1]), len(t) - 1)
+        if il >= ir or not il <= apex <= ir:
+            raise ValueError("Bornes sans intervalle valide autour de l’apex")
         stop_l = stop_r = "impose"
 
     # Niveau aux bornes : médiane locale du brut, moins sensible à un point bruité.
@@ -144,3 +153,4 @@ def integrate_peak(t, y, apex, *, ys=None, sigma=None, baseline="min_bornes", bo
     height = float(ys[apex] - b_apex)
     return Peak(rt, float(t[il]), float(t[ir]), area, height, b_apex,
                 stop_l, stop_r, height / sigma)
+

@@ -47,6 +47,9 @@ def plot(ref: pd.DataFrame, traces: dict, path: Path) -> None:
 
     ok = ref.dropna(subset=["rt_ref"])
     cols = 4
+    if ok.empty:
+        path.unlink(missing_ok=True)
+        return
     rows = -(-len(ok) // cols)
     fig, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 2.9 * rows), squeeze=False)
     for ax, (_, r) in zip(axes.flat, ok.iterrows()):
@@ -118,3 +121,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

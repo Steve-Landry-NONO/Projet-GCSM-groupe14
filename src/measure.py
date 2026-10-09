@@ -15,7 +15,7 @@ from reference import RATIO_TOL_REL, RT_TOL_REL, _preparer, measure_peak
 
 
 def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search_rel=0.01,
-                   min_snr=3.0, baseline="min_bornes", qual_bounds="quantifiant", **kw) -> pd.DataFrame:
+                   min_snr=3.0, sample_type=None, baseline="min_bornes", qual_bounds="quantifiant", **kw) -> pd.DataFrame:
     """Mesure chaque composé d'un échantillon à partir de la référence GAM-6.
 
     Règle métier : on prend le pic du m/z quantifiant le plus proche du temps de
@@ -27,9 +27,22 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
     prep = _preparer(traces)
     istd_of = dict(zip(compounds["name"], compounds["istd"].fillna("")))
     rows = []
-    for _, r in ref.dropna(subset=["rt_ref"]).iterrows():
-        nm, mzq, mzl, rt0 = r["name"], int(r["mz_quant"]), r["mz_qual"], float(r["rt_ref"])
+    expected = compounds.merge(ref, on="name", how="left", suffixes=("_method", ""))
+    for _, r in expected.iterrows():
+        nm = r["name"]
+        mzq = int(r.get("mz_quant_method", r.get("mz_quant")))
+        mzl = r.get("mz_qual_method", r.get("mz_qual"))
+        rt0 = r.get("rt_ref", np.nan)
         row = {"name": nm, "istd": istd_of.get(nm, ""), "rt_ref": rt0, "ratio_ref": r.get("ratio_ref")}
+        use = str(r.get("use", "")).strip().lower()
+        applicable = str(r.get("applicable_to", ""))
+        if use == "inutilisé" or (sample_type and applicable not in ("", "nan")
+                                  and sample_type not in {v.strip() for v in applicable.split(",")}):
+            rows.append({**row, "status": "non applicable", "warning": "exclu par les métadonnées"})
+            continue
+        if not np.isfinite(rt0):
+            rows.append({**row, "status": "référence absente", "warning": "temps de référence manquant"})
+            continue
         if mzq not in traces:
             rows.append({**row, "status": "m/z absent"})
             continue
@@ -47,11 +60,21 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
                    left=pq.left, right=pq.right, area_quant=pq.area, snr_quant=pq.snr)
         if pl is not None and pq.area > 0:
             ratio = pl.area / pq.area
-            d_ratio = (ratio - r["ratio_ref"]) / r["ratio_ref"]
+            ratio0 = r.get("ratio_ref", np.nan)
+            d_ratio = (ratio - ratio0) / ratio0 if pd.notna(ratio0) and ratio0 > 0 else np.nan
             row.update(area_qual=pl.area, ratio=ratio, d_ratio_pct=100 * d_ratio,
                        ratio_ok=bool(abs(d_ratio) <= RATIO_TOL_REL))
+        ref_warning = r.get("warning", "")
+        if isinstance(ref_warning, str) and ref_warning.strip():
+            warn.append("référence à vérifier : " + ref_warning)
+        if pq.left_stop == "vallee" or pq.right_stop == "vallee":
+            warn.append("pic voisin : séparation des aires à valider")
+        if r.get("double_peak") is True or r.get("double_peak") == 1:
+            warn.append("double pic : règle métier à confirmer")
+        if pd.notna(r.get("median_despike")) and r.get("median_despike") == 1:
+            warn.append("suppression des pics parasites à confirmer")
         checks = [row.get("rt_ok"), row.get("ratio_ok")]
-        row["status"] = "OK" if all(c is True for c in checks) else "à vérifier"
+        row["status"] = "OK" if all(c is True for c in checks) and not warn else "à vérifier"
         if not row["rt_ok"]:
             warn.append("TR hors ±0,2 %")
         if row.get("ratio_ok") is False:
@@ -59,8 +82,25 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
         row["warning"] = " ; ".join(warn)
         rows.append(row)
     out = pd.DataFrame(rows)
-    # Réponse normalisée par l'étalon interne (ce qui alimentera la calibration).
-    area = dict(zip(out["name"], out.get("area_quant", pd.Series(dtype=float))))
-    out["area_istd"] = out["istd"].map(lambda i: area.get(i, np.nan) if i else np.nan)
-    out["response"] = out["area_quant"] / out["area_istd"]
+    # On conserve toutes les lignes, même lorsque rien n'a été détecté.
+    for col in ("area_quant", "rt", "ratio", "warning"):
+        if col not in out:
+            out[col] = np.nan if col != "warning" else ""
+    # Deux cibles ne doivent pas utiliser le même sommet sur un ion partagé.
+    mz_of = dict(zip(compounds["name"], compounds["mz_quant"]))
+    out["mz_quant"] = out["name"].map(mz_of)
+    duplicated = out["rt"].notna() & out.duplicated(["mz_quant", "rt"], keep=False)
+    out.loc[duplicated, "status"] = "à vérifier"
+    out.loc[duplicated, "warning"] = out.loc[duplicated, "warning"].fillna("") + " ; apex attribué à plusieurs composés"
+    area = out.set_index("name")["area_quant"].to_dict()
+    status = out.set_index("name")["status"].to_dict()
+    out["area_istd"] = out["istd"].map(area)
+    out["istd_status"] = out["istd"].map(status)
+    valid = (out["status"].eq("OK") & out["istd_status"].eq("OK")
+             & np.isfinite(out["area_quant"]) & np.isfinite(out["area_istd"])
+             & out["area_quant"].gt(0) & out["area_istd"].gt(0))
+    out["response"] = np.nan
+    out.loc[valid, "response"] = out.loc[valid, "area_quant"] / out.loc[valid, "area_istd"]
+    has_istd = out["istd"].ne("")
+    out.loc[has_istd & ~out["istd_status"].eq("OK") & out["status"].eq("OK"), "status"] = "ISTD à vérifier"
     return out

@@ -9,6 +9,9 @@ L'application ne recalcule rien : elle lit les sorties des scripts
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+from run_calibration import sf_verdict
 
 import numpy as np
 import pandas as pd
@@ -17,21 +20,19 @@ import streamlit as st
 
 HERE = Path(__file__).resolve().parent
 RT_TOL, RATIO_TOL = 0.2, 23.0          # % (cahier des charges, d'après les notes)
-INK, MUTED, ACCENT, ALERT = "#1f2937", "#9ca3af", "#2563eb", "#dc2626"
+INK, MUTED, ACCENT, ALERT = "#111111", "#aaaaaa", "#666666", "#000000"
 
-st.set_page_config(page_title="Analyse GC-MS", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="Analyse GC-MS", layout="wide")
 
 
 # --------------------------------------------------------------------------- #
 # Données
 # --------------------------------------------------------------------------- #
-@st.cache_data
 def read_csv(path: str) -> pd.DataFrame | None:
     p = Path(path)
     return pd.read_csv(p) if p.exists() else None
 
 
-@st.cache_data
 def read_trace(batch_dir: str, sample: str, mz) -> pd.DataFrame | None:
     if pd.isna(mz):
         return None
@@ -43,7 +44,8 @@ def fig_base(title="", x="", y="", height=360):
     f = go.Figure()
     f.update_layout(title=dict(text=title, font=dict(size=14)), height=height,
                     margin=dict(l=10, r=10, t=40 if title else 10, b=10),
-                    xaxis_title=x, yaxis_title=y, template="plotly_white",
+                    xaxis_title=x, yaxis_title=y, template="plotly_white", font=dict(family="Calibri, Arial", color="black"),
+                    colorway=["#111111", "#555555", "#999999", "#cccccc"],
                     legend=dict(orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom"))
     return f
 
@@ -67,6 +69,9 @@ if ref is None:
     st.stop()
 
 names = ref.dropna(subset=["rt_ref"])["name"].tolist()
+if not names:
+    st.error("Aucun composé avec une référence mesurable. Contrôle les données avant de continuer.")
+    st.stop()
 types = dict(zip(ref["name"], ref.get("type", pd.Series(index=ref.index, dtype=str))))
 compound = st.sidebar.selectbox("Composé", names, index=names.index("Naphtalene") if "Naphtalene" in names else 0)
 r0 = ref.set_index("name").loc[compound]
@@ -87,27 +92,27 @@ with tabs[0]:
               help="Temps de rétention et ratio de référence trouvés sur GAM-6")
     if peaks is not None:
         g = peaks[peaks["type"] == "GAM"]
-        c2.metric("Gamme GAM : mesures conformes", f"{(g['status'] == 'OK').sum()} / {len(g)}",
+        c2.metric("Gamme GAM : mesures sans alerte", f"{(g['status'] == 'OK').sum()} / {len(g)}",
                   help="TR ±0,2 % et ratio ±23 % par rapport à la référence")
     else:
         c2.metric("Gamme GAM", "à lancer")
     c3.metric(f"Calibration : R² minimal ({len(cal)} HAP)" if cal is not None else "Calibration",
               f"{cal['r2'].min():.4f}" if cal is not None else "à lancer")
     if sf is not None and len(sf):
-        c4.metric("Contrôle SF : résultats PASS", f"{sf['sf_status'].str.startswith('PASS').sum()} / {len(sf)}",
+        c4.metric("Contrôle SF : résultats PASS", f"{sf['sf_status'].eq('PASS').sum()} / {len(sf)}",
                   help="Tolérance fixée dans run_calibration.py (provisoire)")
     else:
         c4.metric("Contrôle SF", "à lancer")
 
     if peaks is not None:
         st.subheader("Conformité par composé et par échantillon")
-        st.caption("Vert : TR et ratio dans les tolérances. Orange : à vérifier. Gris : non détecté.")
+        st.caption("Gris foncé : mesure sans alerte. Gris moyen : à vérifier. Gris clair : autre statut ; consulter le détail.")
         piv = peaks.pivot_table(index="name", columns="sample", values="status", aggfunc="first")
         piv = piv.reindex([n for n in names if n in piv.index])
         piv.columns = [c.split("-", 1)[-1] for c in piv.columns]
         code = piv.apply(lambda col: col.map({"OK": 2, "à vérifier": 1})).fillna(0).astype(float)
         f = go.Figure(go.Heatmap(z=code.values, x=list(piv.columns), y=list(piv.index), zmin=0, zmax=2,
-                                 colorscale=[[0, "#e5e7eb"], [0.5, "#f59e0b"], [1, "#16a34a"]],
+                                 colorscale=[[0, "#eeeeee"], [0.5, "#999999"], [1, "#333333"]],
                                  showscale=False, text=piv.values, hovertemplate="%{y}<br>%{x}<br>%{text}<extra></extra>",
                                  xgap=2, ygap=2))
         f.update_layout(height=40 + 22 * len(piv), margin=dict(l=10, r=10, t=10, b=10),
@@ -149,7 +154,7 @@ with tabs[1]:
                               line=dict(color=col, dash=dash, width=1.6))
         f.add_vline(x=r0.rt_ref, line=dict(color=INK, dash="dot", width=1))
         st.plotly_chart(f, width="stretch")
-        st.caption("Gris : zone intégrée. Bleu clair : tolérance ±0,2 % autour du TR de référence.")
+        st.caption("Gris : zone intégrée. Gris clair : tolérance ±0,2 % autour du TR de référence.")
 
     st.subheader("Tous les composés")
     cols = ["elution_rank", "name", "type", "mz_quant", "mz_qual", "rt_ref", "rt_min", "rt_max",
@@ -168,7 +173,7 @@ with tabs[2]:
         left, right = st.columns(2)
         with left:
             f = fig_base("Écart de TR à la référence", "niveau GAM", "écart TR (%)")
-            f.add_hrect(y0=-RT_TOL, y1=RT_TOL, fillcolor="#16a34a", opacity=0.08, line_width=0)
+            f.add_hrect(y0=-RT_TOL, y1=RT_TOL, fillcolor="#777777", opacity=0.08, line_width=0)
             f.add_scatter(x=g["level"], y=g["d_rt_pct"], mode="lines+markers", name="GAM",
                           line=dict(color=INK), marker=dict(color=np.where(g["rt_ok"] == True, INK, ALERT), size=9))
             s = d[d["type"] == "SF"]
@@ -179,12 +184,12 @@ with tabs[2]:
             st.plotly_chart(f, width="stretch")
         with right:
             f = fig_base("Écart de ratio qualifiant/quantifiant", "niveau GAM", "écart ratio (%)")
-            f.add_hrect(y0=-RATIO_TOL, y1=RATIO_TOL, fillcolor="#16a34a", opacity=0.08, line_width=0)
+            f.add_hrect(y0=-RATIO_TOL, y1=RATIO_TOL, fillcolor="#777777", opacity=0.08, line_width=0)
             f.add_scatter(x=g["level"], y=g["d_ratio_pct"], mode="lines+markers", name="GAM",
                           line=dict(color=INK), marker=dict(color=np.where(g["ratio_ok"] == True, INK, ALERT), size=9))
             f.update_xaxes(tickvals=list(range(1, 9)))
             st.plotly_chart(f, width="stretch")
-        st.caption("Bande verte = tolérance. Point rouge = hors tolérance. "
+        st.caption("Bande grise = tolérance de travail. Les tableaux donnent les statuts détaillés. "
                    "Niveaux 1 → 8 = 0,025 → 5 ppm ; la référence est le niveau 6 (1 ppm). "
                    "Les SF sont placées au niveau 6 (même concentration nominale).")
 
@@ -192,7 +197,7 @@ with tabs[2]:
         norm = st.toggle("Normaliser chaque courbe à son maximum", value=True)
         f = fig_base(x="temps (min)", y="intensité relative" if norm else "intensité", height=420)
         lo, hi = r0.q_left - 0.05, min(r0.q_right, r0.rt_ref + 0.25)
-        shades = [f"rgba(37,99,235,{a:.2f})" for a in np.linspace(0.25, 1, 8)]
+        shades = [f"rgba(0,0,0,{a:.2f})" for a in np.linspace(0.25, 1, 8)]
         found = False
         for (_, row), col in zip(g.iterrows(), shades):
             tr = read_trace(str(bdir), row["sample"], r0.mz_quant)
@@ -219,8 +224,8 @@ with tabs[2]:
                               mode="lines+markers", name=nm)
             f.add_hline(y=1, line=dict(color=MUTED, dash="dot"))
             st.plotly_chart(f, width="stretch")
-            st.caption("Une baisse commune à tous les étalons signale une perte de sensibilité de l'appareil ; "
-                       "la normalisation aire / aire ISTD la corrige.")
+            st.caption("Une baisse commune peut avoir plusieurs causes (préparation, injection ou sensibilité) ; "
+                       "la normalisation par un ISTD valide cherche à compenser les variations communes.")
 
         st.subheader("Mesures du composé")
         cols = ["sample", "level", "conc_nominal_ppm", "rt", "d_rt_pct", "ratio", "d_ratio_pct",
@@ -235,9 +240,16 @@ with tabs[3]:
         st.info("Lance src/run_calibration.py.")
     elif compound not in set(cal["name"]):
         st.info(f"{compound} n'est pas calibré (étalon interne ou surrogat). Choisis un HAP cible.")
+    elif cal.set_index("name").loc[compound, "status"] != "ok":
+        st.warning("Calibration non exploitable : " + str(cal.set_index("name").loc[compound, "status"]))
+        st.dataframe(cal, hide_index=True)
+    elif pts is None:
+        st.warning("Points de calibration absents : relance le calcul.")
     else:
         k = cal.set_index("name").loc[compound]
         p = pts[pts["name"] == compound]
+        if "included" in p:
+            p = p[p["included"].eq(True)]
         c1, c2, c3 = st.columns(3)
         c1.metric("R²", f"{k.r2:.5f}")
         c2.metric("Écart max des points recalculés", f"{k.ecart_max_pct:.1f} %")
@@ -256,7 +268,7 @@ with tabs[3]:
                           marker=dict(color="white", line=dict(color=INK, width=1.5), size=9))
             if sf is not None and len(sf):
                 s = sf[sf["name"] == compound]
-                f.add_scatter(x=s["conc_final_ppm"], y=s["response"], mode="markers", name="SF (recalculées)",
+                f.add_scatter(x=s["conc_calc_ppm"], y=s["response"], mode="markers", name="SF (recalculées)",
                               marker=dict(symbol="x", color=ACCENT, size=10))
             if log:
                 f.update_xaxes(type="log"); f.update_yaxes(type="log")
@@ -281,7 +293,8 @@ with tabs[4]:
         tol = st.slider("Tolérance d'acceptation (± %)", 5, 40, 20, 1,
                         help="Valeur provisoire : la tolérance officielle reste à confirmer avec le cahier des charges.")
         s = sf.copy()
-        s["verdict"] = np.where(s["ecart_pct"].abs() <= tol, "PASS", "FAIL")
+        s["verdict"] = s.apply(lambda r: sf_verdict(r.get("peak_status"), r.get("inversion"),
+                                                      r.get("ecart_pct", np.nan), tol), axis=1)
         n_pass = (s["verdict"] == "PASS").sum()
         c1, c2, c3 = st.columns(3)
         c1.metric("Résultats conformes", f"{n_pass}/{len(s)}")
@@ -292,7 +305,7 @@ with tabs[4]:
         piv.columns = [c.split("-", 1)[-1] for c in piv.columns]
         lim = max(tol * 1.5, float(np.nanmax(np.abs(piv.values))))
         f = go.Figure(go.Heatmap(z=piv.values, x=list(piv.columns), y=list(piv.index), zmid=0, zmin=-lim, zmax=lim,
-                                 colorscale="RdBu",
+                                 colorscale="Greys",
                                  text=[[("—" if np.isnan(v) else f"{v:+.1f} %") for v in row] for row in piv.values],
                                  texttemplate="%{text}",
                                  hovertemplate="%{y}<br>%{x}<br>écart %{z:.1f} %<extra></extra>",
@@ -309,5 +322,6 @@ with tabs[4]:
 # --------------------------------------------------------------------------- #
 with tabs[5]:
     st.info("Les BLPC (échantillons réels) sont hors du périmètre actuel du cahier des charges. "
-            "La chaîne est prête à les traiter de la même manière : mesure contre la référence GAM-6, "
+            "Le traitement des BLPC reste à implémenter et à valider : mesure contre la référence GAM-6, "
             "inversion de la calibration, puis application du facteur de dilution (multiplier) une seule fois.")
+

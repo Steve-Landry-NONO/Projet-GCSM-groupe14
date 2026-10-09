@@ -2,7 +2,7 @@
 
 Pour chaque composé de la méthode (metadata.xlsx) :
   1. repérer son pic sur le m/z quantifiant ; si plusieurs composés partagent
-     ce m/z, les départager par l'ordre d'élution, seul invariant fiable ;
+     ce m/z, les départager par l'ordre d'élution, repère de la méthode, à confirmer ;
   2. apex -> temps de rétention de référence ;
   3. bornes par descente à gauche et à droite du sommet ;
   4. aire au-dessus de la ligne de base, sur le signal brut ;
@@ -22,7 +22,7 @@ import pandas as pd
 
 from peaks import candidate_peaks, integrate_peak, noise_sigma, smooth
 
-# Tolérances données en cours (cahier des charges) : contrôle d'identification.
+# Tolérances des notes : paramètres de travail à confirmer avec le professeur.
 RT_TOL_REL = 0.002     # ±0,2 % sur le temps de rétention
 RATIO_TOL_REL = 0.23   # ±23 % sur le ratio qualifiant/quantifiant
 
@@ -96,7 +96,10 @@ def measure_peak(prep, traces, apex, mzq, mzl, *, min_snr=10.0, baseline="min_bo
     dtl = float(np.median(np.diff(tl)))
     half = max(3 * dtl, pq.rt * RT_TOL_REL)
     lo, hi = np.searchsorted(tl, [pq.rt - half, pq.rt + half])
-    hi = min(max(hi, lo + 1), len(tl) - 1)
+    hi = min(hi, len(tl) - 1)
+    if lo >= len(tl) or hi <= lo:
+        warn.append("fenêtre qualifiante absente ou trop courte")
+        return pq, None, warn
     apex_l = lo + int(np.argmax(yls[lo:hi + 1]))
     own = integrate_peak(tl, yl, apex_l, ys=yls, sigma=sigl, baseline=baseline, **kw)
     if qual_bounds == "quantifiant":
@@ -131,7 +134,7 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
     """Temps de rétention et ratio de référence pour chaque composé.
 
     compounds : colonnes `name`, `mz_quant`, `mz_qual`, `elution_rank`
-        (`elution_rank` = ordre de sortie de colonne, seul invariant fiable ; il
+        (`elution_rank` = ordre de sortie de colonne, repère de la méthode, à confirmer ; il
         départage les composés qui partagent un même m/z quantifiant).
     qual_bounds : 'quantifiant' = le qualifiant est intégré sur les bornes du
         quantifiant ; 'independant' = il a sa propre descente.
@@ -195,6 +198,8 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         pq, pl, w = measure_peak(prep, traces, picks[nm], mzq, mzl, min_snr=min_snr,
                                  baseline=baseline, qual_bounds=qual_bounds, **kw)
         warn += w
+        if "vallee" in (pq.left_stop, pq.right_stop):
+            warn.append("pic voisin : séparation des aires à valider")
         row.update(rt_ref=pq.rt, rt_min=pq.rt * (1 - RT_TOL_REL), rt_max=pq.rt * (1 + RT_TOL_REL),
                    q_left=pq.left, q_right=pq.right, q_stop=f"{pq.left_stop}/{pq.right_stop}",
                    area_quant=pq.area, snr_quant=pq.snr)
@@ -207,6 +212,9 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         rows.append(row)
 
     out = pd.DataFrame(rows)
+    for col in ("rt_ref", "ratio_ref", "area_quant", "area_qual"):
+        if col not in out:
+            out[col] = np.nan
     # Garde-fou final : les temps de référence doivent croître avec l'ordre d'élution.
     if "rt_ref" in out:
         rt = out["rt_ref"].to_numpy(float)
@@ -215,3 +223,4 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         out.loc[bad, "warning"] = (out.loc[bad, "warning"].fillna("")
                                    + " ; ordre d'élution non respecté").str.strip(" ;")
     return out
+

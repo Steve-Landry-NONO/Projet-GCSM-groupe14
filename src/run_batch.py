@@ -52,6 +52,9 @@ def main() -> None:
                      if p.is_dir() and p.suffix.lower() == ".d" and classify(p.stem))
     if not samples:
         sys.exit(f"Aucun dossier GAM ou SF .D trouvé sous {args.source}")
+    parents = {p.parent for p in samples}
+    if len(parents) != 1:
+        sys.exit("Plusieurs batchs trouvés : indique un seul dossier batch pour éviter de mélanger les références")
     batch = samples[0].parent.name
     out = args.out / batch
     ref_path = out / "references_gam6.csv"
@@ -67,7 +70,7 @@ def main() -> None:
         ion_dir = out / "ions" / d.stem
         if not any(ion_dir.glob("mz_*.csv")):
             export_sample(d, out / "ions")
-        res = measure_sample(load_sample(ion_dir), ref, compounds)
+        res = measure_sample(load_sample(ion_dir), ref, compounds, sample_type=kind)
         res.insert(0, "sample", d.stem)
         res.insert(1, "type", kind)
         res.insert(2, "level", num)
@@ -79,7 +82,7 @@ def main() -> None:
     peaks = pd.concat(tables, ignore_index=True)
     peaks.to_csv(out / "peaks.csv", index=False, float_format="%.6g")
     conf = peaks.pivot_table(index="name", columns="sample", values="status", aggfunc="first")
-    order = ref.dropna(subset=["rt_ref"])["name"]
+    order = compounds["name"]
     conf = conf.reindex([n for n in order if n in conf.index])
     conf.to_csv(out / "conformite.csv")
 
@@ -94,3 +97,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

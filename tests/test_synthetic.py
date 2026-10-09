@@ -71,6 +71,9 @@ for _, r in ref.iterrows():
     ok &= abs(e_rt) < 0.2 and abs(e_ratio) < 23
     if r["name"] in ("Isolé à traînée", "Troisième même m/z", "Faible signal"):
         ok &= abs(e_area) < 5          # pics isolés : l'aire doit être retrouvée
+    elif abs(e_area) >= 5:
+        # On ne prétend pas retrouver les aires coéluées : elles doivent être signalées.
+        ok &= "séparation des aires à valider" in r.warning
 print(pd.DataFrame(rows, columns=["composé", "rt_ref", "err_rt_%", "err_aire_%",
                                   "err_ratio_%", "arrêts", "alerte"])
       .to_string(index=False, float_format=lambda v: f"{v:.3f}"))
@@ -88,5 +91,6 @@ rep = pd.DataFrame({"cv_rt_%": 100 * rt.std(axis=1) / rt.mean(axis=1),
 print("\nRépétabilité sur 200 tirages de bruit :")
 print(rep.to_string(float_format=lambda v: f"{v:.3f}"))
 ok &= bool((rep["cv_rt_%"] < 0.2).all() and (rep["biais_ratio_%"].abs() < 23).all())
-print("\nRESULTAT :", "OK" if ok else "ECHEC")
+print("\nRESULTAT :", "OK (aires isolées et signalement des limites ; coélutions non validées)" if ok else "ECHEC")
 sys.exit(0 if ok else 1)
+

@@ -4,7 +4,9 @@
 
 Ce dépôt rassemble le travail du groupe 14 sur l'exploitation de données de chromatographie en phase gazeuse couplée à la spectrométrie de masse (GC-MS). Le projet vise à déterminer les concentrations de molécules toxiques connues, ici 16 hydrocarbures aromatiques polycycliques (HAP), à partir des signaux instrumentaux, d'une gamme d'étalonnage et de solutions de contrôle.
 
-Le dépôt est volontairement évolutif. Il contient le cadrage actuel, les données jugées nécessaires, la structure de données proposée et un notebook de visualisation. À ce stade, il ne présente pas encore un recalcul complet des concentrations à partir des signaux ioniques bruts.
+Le dépôt est volontairement évolutif. Il contient le cadrage, un notebook d'exploration et, depuis le 9 octobre 2026, un pipeline Python qui recalcule la référence GAM-6, les mesures de la gamme, les calibrations et le contrôle des SF à partir des signaux ioniques bruts, ainsi qu'une application Streamlit pour analyser les résultats.
+
+Pour reprendre le projet, commencer par [CONTEXTE_PROJET.md](CONTEXTE_PROJET.md) : contexte métier, décisions prises, résultats et questions ouvertes.
 
 ## Membres du groupe
 
@@ -31,6 +33,9 @@ Notre réponse actuelle est la suivante : un nom de composé ou un chromatogramm
 | [Notebook Jupyter](notebooks/Notebook_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.ipynb) | Exploration reproductible, commentaires simples et visualisations. |
 | [Notebook HTML](notebooks/Notebook_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.html) | Aperçu autonome du notebook déjà exécuté. |
 | [Figures](https://github.com/Steve-Landry-NONO/Projet-GCSM-groupe14/tree/main/assets/figures) | Images en noir et blanc utilisées dans le rapport et dans le notebook. |
+| [Pipeline `src/`](src) | Extraction des ions depuis les `.D`, référence GAM-6, mesures GAM/SF, calibration quadratique et contrôle SF. |
+| [Application `app.py`](app.py) | Analyse visuelle interactive : référence, gamme, calibration, contrôle SF. |
+| [CONTEXTE_PROJET.md](CONTEXTE_PROJET.md) | Contexte, décisions, résultats et questions ouvertes, à lire avant toute reprise. |
 
 Le PDF conserve exactement la présentation du rendu. Le Markdown conserve le contenu scientifique, les tableaux, les formules et les liens vers les figures, mais GitHub applique sa propre police et sa propre mise en page. Les deux formats sont donc complémentaires.
 
@@ -73,8 +78,22 @@ Nous proposons de garder les fichiers instrumentaux natifs sans modification et 
 ```text
 Projet-GCSM-groupe14/
 ├── README.md
+├── CONTEXTE_PROJET.md
 ├── CONTRIBUTING.md
 ├── requirements.txt
+├── app.py                      application Streamlit
+├── src/                        pipeline de traitement
+│   ├── agilent_ms.py           lecture des .D
+│   ├── peaks.py                détection et intégration d'un pic
+│   ├── reference.py            référence GAM-6
+│   ├── measure.py              contrôle des GAM et SF
+│   ├── run_reference.py
+│   ├── run_batch.py
+│   └── run_calibration.py
+├── tests/
+│   └── test_synthetic.py
+├── data/                       (non versionné) data/raw/<batch>/*.D et data/metadata.xlsx
+├── outputs/                    (non versionné) résultats calculés
 ├── docs/
 │   ├── Rendu_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.md
 │   └── Rendu_KOUOKAM_TUEKAM_GHILAS_MAFORIKAN_DIEYE.pdf
@@ -84,6 +103,24 @@ Projet-GCSM-groupe14/
 └── assets/
     └── figures/
 ```
+
+## Lancer le pipeline et l'application
+
+Placer les dossiers `.D` du batch dans `data/raw/` et `metadata.xlsx` dans `data/`, puis :
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows : .venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+
+python src/run_reference.py data/raw     # 1. référence GAM-6 : TR et ratio de référence
+python src/run_batch.py data/raw         # 2. mesures des 8 GAM et des SF par rapport à la référence
+python src/run_calibration.py            # 3-4. calibration quadratique (1/x) et contrôle SF
+streamlit run app.py                     # analyse visuelle
+python tests/test_synthetic.py           # validation sur signaux synthétiques
+```
+
+Les résultats sont écrits dans `outputs/<batch>/` : `references_gam6.csv`, `peaks.csv`, `conformite.csv`, `calibrations.csv`, `calibration_points.csv`, `sf_results.csv`, ainsi que des figures de contrôle.
 
 ## Reproduire le notebook
 
@@ -104,12 +141,13 @@ Le notebook contient les données de synthèse nécessaires à ses graphiques. L
 - [x] Identifier les 16 HAP, leurs ions et leurs étalons internes.
 - [x] Décrire les données indispensables et proposer un modèle exploitable.
 - [x] Produire un PDF, un Markdown et un notebook commenté.
-- [ ] Extraire ou obtenir les signaux séparés par ion depuis les dossiers `.D`.
-- [ ] Définir précisément les règles d'intégration et les tolérances métier.
-- [ ] Construire les références à partir de GAM-6.
-- [ ] Recalculer les calibrations pour chaque composé.
-- [ ] Valider les résultats avec les SF.
-- [ ] Quantifier les échantillons inconnus et documenter les incertitudes.
+- [x] Extraire les signaux séparés par ion depuis les dossiers `.D`.
+- [x] Construire les références à partir de GAM-6 (23 composés).
+- [x] Mesurer la gamme GAM par rapport à la référence (181 mesures conformes sur 184).
+- [x] Recalculer les calibrations pour chaque HAP (R² ≥ 0,9997, cohérentes avec MassHunter).
+- [ ] Valider les SF : calcul fait, tolérance et écart systématique d'environ −9 % à confirmer.
+- [ ] Confirmer les règles d'intégration et les tolérances métier (voir les questions ouvertes de CONTEXTE_PROJET.md).
+- [ ] Quantifier les échantillons inconnus (BLPC) et documenter les incertitudes.
 
 ## Points à confirmer
 
@@ -117,7 +155,7 @@ Le notebook contient les données de synthèse nécessaires à ses graphiques. L
 - tolérances d'acceptation sur le temps de rétention, le ratio ionique et la concentration ;
 - méthode officielle d'intégration et de ligne de base ;
 - interprétation de `double_peak`, `median_despike` et de la coélution ;
-- moyen retenu pour convertir les données natives `.D` en séries `temps/intensité` par ion.
+- ~~moyen retenu pour convertir les données natives `.D` en séries `temps/intensité` par ion~~ : lecture directe des `data.ms` (`src/agilent_ms.py`).
 
 ## Règles de contribution
 

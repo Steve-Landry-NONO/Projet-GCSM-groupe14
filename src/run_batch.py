@@ -25,6 +25,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 from agilent_ms import export_sample                  # noqa: E402
+from alerts import EDGE_MAX_RATIO, VALLEY_MAX_RATIO  # noqa: E402
 from measure import measure_sample  # noqa: E402
 from reference import default_method, load_compounds, load_sample  # noqa: E402
 
@@ -46,6 +47,10 @@ def main() -> None:
     ap.add_argument("--compounds", type=Path, default=default_method(ROOT),
                     help="metadata.xlsx de la méthode (défaut : data/metadata.xlsx ou ./metadata.xlsx)")
     ap.add_argument("--out", type=Path, default=ROOT / "outputs")
+    ap.add_argument("--valley-max", type=float, default=None,
+                    help="seuil vallée/hauteur (défaut : celui enregistré avec la référence)")
+    ap.add_argument("--edge-max", type=float, default=None,
+                    help="seuil de signal au bord SIM (défaut : celui enregistré avec la référence)")
     args = ap.parse_args()
 
     samples = sorted(p for p in args.source.resolve().rglob("*")
@@ -62,6 +67,13 @@ def main() -> None:
         sys.exit(f"{ref_path} introuvable : lance d'abord  python src/run_reference.py {args.source}")
     ref = pd.read_csv(ref_path)
     compounds = load_compounds(args.compounds)
+    # Mêmes seuils que la référence, sauf choix explicite (et alors signalé).
+    recorded = lambda col, default: float(ref[col].iloc[0]) if col in ref and ref[col].notna().any() else default
+    valley_max = args.valley_max if args.valley_max is not None else recorded("valley_max", VALLEY_MAX_RATIO)
+    edge_max = args.edge_max if args.edge_max is not None else recorded("edge_max", EDGE_MAX_RATIO)
+    if (valley_max, edge_max) != (recorded("valley_max", valley_max), recorded("edge_max", edge_max)):
+        print("ATTENTION : seuils différents de ceux de la référence GAM-6")
+    print(f"Seuils expérimentaux : vallée <= {100 * valley_max:.0f} %, bord SIM <= {100 * edge_max:.1f} %")
     print(f"Méthode : {args.compounds.name} ({len(compounds)} composés)")
 
     tables = []
@@ -70,7 +82,8 @@ def main() -> None:
         ion_dir = out / "ions" / d.stem
         if not any(ion_dir.glob("mz_*.csv")):
             export_sample(d, out / "ions")
-        res = measure_sample(load_sample(ion_dir), ref, compounds, sample_type=kind)
+        res = measure_sample(load_sample(ion_dir), ref, compounds, sample_type=kind,
+                             valley_max=valley_max, edge_max=edge_max)
         res.insert(0, "sample", d.stem)
         res.insert(1, "type", kind)
         res.insert(2, "level", num)
@@ -89,7 +102,7 @@ def main() -> None:
     bad = peaks[peaks["status"] != "OK"]
     if len(bad):
         print("\nÀ vérifier :")
-        cols = ["sample", "name", "status", "d_rt_pct", "d_ratio_pct", "warning"]
+        cols = ["sample", "name", "status", "d_rt_pct", "d_ratio_pct", "blocking_alerts"]
         with pd.option_context("display.width", 220, "display.max_colwidth", 70):
             print(bad[[c for c in cols if c in bad]].to_string(index=False, float_format=lambda v: f"{v:+.2f}"))
     print(f"\nRésultats : {out / 'peaks.csv'}\nConformité : {out / 'conformite.csv'}")
@@ -97,4 +110,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

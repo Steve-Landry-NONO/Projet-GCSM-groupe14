@@ -10,12 +10,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from alerts import EDGE_MAX_RATIO, VALLEY_MAX_RATIO, Alert, blocking_from_reference, render
 from peaks import candidate_peaks
 from reference import RATIO_TOL_REL, RT_TOL_REL, _preparer, measure_peak
 
 
 def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search_rel=0.01,
-                   min_snr=3.0, sample_type=None, baseline="min_bornes", qual_bounds="quantifiant", **kw) -> pd.DataFrame:
+                   min_snr=3.0, sample_type=None, baseline="min_bornes", qual_bounds="quantifiant",
+                   valley_max=VALLEY_MAX_RATIO, edge_max=EDGE_MAX_RATIO, **kw) -> pd.DataFrame:
     """Mesure chaque composé d'un échantillon à partir de la référence GAM-6.
 
     Règle métier : on prend le pic du m/z quantifiant le plus proche du temps de
@@ -23,6 +25,9 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
       - le temps de rétention : |TR - TR_ref| <= 0,2 % de TR_ref ;
       - le ratio qualifiant/quantifiant : |ratio - ratio_ref| <= 23 % de ratio_ref ;
     et on calcule la réponse normalisée aire_quant / aire_quant(ISTD).
+
+    Une mesure est « OK » si TR et ratio passent et qu'aucune alerte bloquante ne
+    subsiste (voir alerts.py) ; les alertes informatives restent affichées.
     """
     prep = _preparer(traces)
     istd_of = dict(zip(compounds["name"], compounds["istd"].fillna("")))
@@ -54,44 +59,50 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
             continue
         apex = int(idx[np.argmin(np.abs(t[idx] - rt0))])
         pq, pl, warn = measure_peak(prep, traces, apex, mzq, mzl, min_snr=min_snr,
-                                    baseline=baseline, qual_bounds=qual_bounds, **kw)
+                                    baseline=baseline, qual_bounds=qual_bounds,
+                                    valley_max=valley_max, edge_max=edge_max, **kw)
         d_rt = (pq.rt - rt0) / rt0
         row.update(rt=pq.rt, d_rt_pct=100 * d_rt, rt_ok=bool(abs(d_rt) <= RT_TOL_REL),
-                   left=pq.left, right=pq.right, area_quant=pq.area, snr_quant=pq.snr)
+                   left=pq.left, right=pq.right, area_quant=pq.area, snr_quant=pq.snr,
+                   valley_ratio=pq.bound_ratio("vallee"), edge_ratio=pq.bound_ratio("fin_signal"))
         if pl is not None and pq.area > 0:
             ratio = pl.area / pq.area
             ratio0 = r.get("ratio_ref", np.nan)
             d_ratio = (ratio - ratio0) / ratio0 if pd.notna(ratio0) and ratio0 > 0 else np.nan
             row.update(area_qual=pl.area, ratio=ratio, d_ratio_pct=100 * d_ratio,
                        ratio_ok=bool(abs(d_ratio) <= RATIO_TOL_REL))
-        ref_warning = r.get("warning", "")
-        if isinstance(ref_warning, str) and ref_warning.strip():
-            warn.append("référence à vérifier : " + ref_warning)
-        if pq.left_stop == "vallee" or pq.right_stop == "vallee":
-            warn.append("pic voisin : séparation des aires à valider")
+        warn += blocking_from_reference(r)
         if r.get("double_peak") is True or r.get("double_peak") == 1:
-            warn.append("double pic : règle métier à confirmer")
+            warn.append(Alert("double pic (double_peak) : règle métier non définie, aire non validée"))
         if pd.notna(r.get("median_despike")) and r.get("median_despike") == 1:
-            warn.append("suppression des pics parasites à confirmer")
-        checks = [row.get("rt_ok"), row.get("ratio_ok")]
-        row["status"] = "OK" if all(c is True for c in checks) and not warn else "à vérifier"
+            warn.append(Alert("filtrage des pics parasites (median_despike) non implémenté"))
         if not row["rt_ok"]:
-            warn.append("TR hors ±0,2 %")
-        if row.get("ratio_ok") is False:
-            warn.append("ratio hors ±23 %")
-        row["warning"] = " ; ".join(warn)
+            warn.append(Alert("TR hors ±0,2 %"))
+        if row.get("ratio_ok") is not True:
+            warn.append(Alert("ratio hors ±23 %" if row.get("ratio_ok") is False
+                              else "ratio qualifiant/quantifiant non calculable"))
+        row.update(render(warn))
+        row["status"] = "OK" if not row["blocking_alerts"] else "à vérifier"
         rows.append(row)
     out = pd.DataFrame(rows)
     # On conserve toutes les lignes, même lorsque rien n'a été détecté.
-    for col in ("area_quant", "rt", "ratio", "rt_ok", "ratio_ok", "warning"):
+    for col in ("area_quant", "rt", "ratio", "rt_ok", "ratio_ok", "warning", "blocking_alerts", "info_alerts"):
         if col not in out:
-            out[col] = np.nan if col != "warning" else ""
+            out[col] = "" if col in ("warning", "blocking_alerts", "info_alerts") else np.nan
+    for col in ("warning", "blocking_alerts", "info_alerts"):
+        out[col] = out[col].fillna("")
+    out["valley_max"], out["edge_max"] = valley_max, edge_max
+
+    def add_blocking(mask, message):
+        for col in ("warning", "blocking_alerts"):
+            out.loc[mask, col] = (out.loc[mask, col] + " ; " + message).str.strip(" ;")
+        out.loc[mask & out["status"].eq("OK"), "status"] = "à vérifier"
+
     # Deux cibles ne doivent pas utiliser le même sommet sur un ion partagé.
     mz_of = dict(zip(compounds["name"], compounds["mz_quant"]))
     out["mz_quant"] = out["name"].map(mz_of)
     duplicated = out["rt"].notna() & out.duplicated(["mz_quant", "rt"], keep=False)
-    out.loc[duplicated, "status"] = "à vérifier"
-    out.loc[duplicated, "warning"] = out.loc[duplicated, "warning"].fillna("") + " ; apex attribué à plusieurs composés"
+    add_blocking(duplicated, "apex attribué à plusieurs composés")
     area = out.set_index("name")["area_quant"].to_dict()
     status = out.set_index("name")["status"].to_dict()
     out["area_istd"] = out["istd"].map(area)
@@ -111,5 +122,8 @@ def measure_sample(traces, ref: pd.DataFrame, compounds: pd.DataFrame, *, search
     out["response_exploratory"] = np.nan
     out.loc[exploratory, "response_exploratory"] = out.loc[exploratory, "area_quant"] / out.loc[exploratory, "area_istd"]
     has_istd = out["istd"].ne("")
-    out.loc[has_istd & ~out["istd_status"].eq("OK") & out["status"].eq("OK"), "status"] = "ISTD à vérifier"
+    istd_bad = has_istd & ~out["istd_status"].eq("OK")
+    for col in ("warning", "blocking_alerts"):
+        out.loc[istd_bad, col] = (out.loc[istd_bad, col] + " ; étalon interne non validé").str.strip(" ;")
+    out.loc[istd_bad & out["status"].eq("OK"), "status"] = "ISTD à vérifier"
     return out

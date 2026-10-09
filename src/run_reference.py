@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 from agilent_ms import export_sample                     # noqa: E402
+from alerts import EDGE_MAX_RATIO, VALLEY_MAX_RATIO  # noqa: E402
 from reference import compute_reference, default_method, load_compounds, load_sample  # noqa: E402
 
 
@@ -84,6 +85,10 @@ def main() -> None:
                     help="metadata.xlsx de la méthode (défaut : data/metadata.xlsx ou ./metadata.xlsx)")
     ap.add_argument("--out", type=Path, default=ROOT / "outputs")
     ap.add_argument("--qual-bounds", choices=["quantifiant", "independant"], default="quantifiant")
+    ap.add_argument("--valley-max", type=float, default=VALLEY_MAX_RATIO,
+                    help="rapport vallée/hauteur au-delà duquel une vallée bloque (défaut 0,10, EXPÉRIMENTAL)")
+    ap.add_argument("--edge-max", type=float, default=EDGE_MAX_RATIO,
+                    help="signal résiduel au bord SIM au-delà duquel la borne bloque (défaut 0,01, EXPÉRIMENTAL)")
     args = ap.parse_args()
 
     src = find_gam6(args.source.resolve())
@@ -105,7 +110,8 @@ def main() -> None:
     if missing:
         print(f"ATTENTION : m/z de la méthode absents des données : {missing}")
 
-    ref = compute_reference(traces, compounds, qual_bounds=args.qual_bounds)
+    ref = compute_reference(traces, compounds, qual_bounds=args.qual_bounds,
+                            valley_max=args.valley_max, edge_max=args.edge_max)
     ref.insert(0, "sample", ion_dir.name)
     extra = [c for c in ("type", "use", "istd") if c in compounds]
     ref = ref.merge(compounds[["name"] + extra], on="name", how="left")
@@ -121,4 +127,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

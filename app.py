@@ -131,8 +131,11 @@ with tabs[1]:
     m2.metric("Ratio de référence", f"{r0.ratio_ref:.4f}", help=f"Fenêtre ±23 % : {r0.ratio_min:.4f} – {r0.ratio_max:.4f}")
     m3.metric("Bornes", f"{r0.q_left:.3f} – {r0.q_right:.3f}")
     m4.metric("Signal / bruit", f"{r0.snr_quant:,.0f}".replace(",", " "))
-    if isinstance(r0.get("warning"), str) and r0.warning:
-        st.warning(r0.warning)
+    blocking = r0.get("blocking_alerts") if "blocking_alerts" in r0 else r0.get("warning")
+    if isinstance(blocking, str) and blocking:
+        st.warning("Alertes bloquantes : " + blocking)
+    if isinstance(r0.get("info_alerts"), str) and r0.info_alerts:
+        st.info("Alertes informatives : " + r0.info_alerts)
 
     sample = r0["sample"]
     tq, tl = read_trace(str(bdir), sample, r0.mz_quant), read_trace(str(bdir), sample, r0.mz_qual)
@@ -158,7 +161,8 @@ with tabs[1]:
 
     st.subheader("Tous les composés")
     cols = ["elution_rank", "name", "type", "mz_quant", "mz_qual", "rt_ref", "rt_min", "rt_max",
-            "q_left", "q_right", "ratio_ref", "ratio_min", "ratio_max", "warning"]
+            "q_left", "q_right", "ratio_ref", "ratio_min", "ratio_max", "valley_ratio", "edge_ratio",
+            "blocking_alerts", "info_alerts"]
     st.dataframe(ref[[c for c in cols if c in ref]], hide_index=True, width="stretch")
 
 # --------------------------------------------------------------------------- #
@@ -229,7 +233,8 @@ with tabs[2]:
 
         st.subheader("Mesures du composé")
         cols = ["sample", "level", "conc_nominal_ppm", "rt", "d_rt_pct", "ratio", "d_ratio_pct",
-                "area_quant", "area_istd", "response", "status", "warning"]
+                "area_quant", "area_istd", "response", "status", "valley_ratio",
+                "blocking_alerts", "info_alerts"]
         st.dataframe(d[[c for c in cols if c in d]], hide_index=True, width="stretch")
 
 # --------------------------------------------------------------------------- #
@@ -326,4 +331,3 @@ with tabs[5]:
     st.info("Les BLPC (échantillons réels) sont hors du périmètre actuel du cahier des charges. "
             "Le traitement des BLPC reste à implémenter et à valider : mesure contre la référence GAM-6, "
             "inversion de la calibration, puis application du facteur de dilution (multiplier) une seule fois.")
-

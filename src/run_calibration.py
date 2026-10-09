@@ -107,13 +107,16 @@ def main() -> None:
                      & d["conc_nominal_ppm"].gt(0))
         if not args.exploratory and "istd_status" in d:
             valid &= d["istd_status"].eq("OK")
-        if not args.exploratory and "warning" in d:
-            valid &= d["warning"].fillna("").str.strip().eq("")
+        # Seules les alertes bloquantes excluent un point ; les alertes informatives
+        # (vallée peu profonde, bord SIM à signal faible) restent tracées.
+        alert_col = "blocking_alerts" if "blocking_alerts" in d else "warning"
+        if not args.exploratory and alert_col in d:
+            valid &= d[alert_col].fillna("").str.strip().eq("")
         d = d[valid].sort_values("conc_nominal_ppm")
         for _, excluded in all_points.loc[~valid].iterrows():
             pt_rows.append({"name": name, "sample": excluded["sample"], "level": excluded["level"],
                             "conc_nominal_ppm": excluded["conc_nominal_ppm"], "response": excluded["response"],
-                            "status_point": excluded["status"], "warning": excluded.get("warning"), "included": False,
+                            "status_point": excluded["status"], "warning": excluded.get("blocking_alerts", excluded.get("warning")), "included": False,
                             "exclusion_reason": "mesure ou ISTD non validé"})
         x, y = d["conc_nominal_ppm"].to_numpy(float), d["response"].to_numpy(float)
         if d["conc_nominal_ppm"].nunique() < 4:
@@ -214,4 +217,3 @@ def plot(cal, pts, sf, path):
 
 if __name__ == "__main__":
     main()
-

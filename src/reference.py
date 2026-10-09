@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from alerts import EDGE_MAX_RATIO, VALLEY_MAX_RATIO, Alert, peak_bound_alerts, render
 from peaks import candidate_peaks, integrate_peak, noise_sigma, smooth
 
 # Tolérances des notes : paramètres de travail à confirmer avec le professeur.
@@ -75,21 +76,19 @@ def load_compounds(path: str | Path) -> pd.DataFrame:
 
 
 def measure_peak(prep, traces, apex, mzq, mzl, *, min_snr=10.0, baseline="min_bornes",
-                 qual_bounds="quantifiant", **kw):
+                 qual_bounds="quantifiant", valley_max=VALLEY_MAX_RATIO,
+                 edge_max=EDGE_MAX_RATIO, **kw):
     """Intègre le pic quantifiant à `apex`, puis le qualifiant ancré dessus.
 
-    Retourne (pic quantifiant, pic qualifiant ou None, liste d'alertes).
+    Retourne (pic quantifiant, pic qualifiant ou None, liste d'Alert).
     """
-    warn = []
+    alerts: list[Alert] = []
     t, y, ys, sig = prep(mzq)
     pq = integrate_peak(t, y, apex, ys=ys, sigma=sig, baseline=baseline, **kw)
-    if "limite" in (pq.left_stop, pq.right_stop):
-        warn.append("borne non trouvée (largeur maximale atteinte)")
-    if "fin_signal" in (pq.left_stop, pq.right_stop):
-        warn.append("borne au bord de la fenêtre SIM : aire à examiner")
+    alerts += peak_bound_alerts(pq, "", valley_max, edge_max)
     if pd.isna(mzl) or int(mzl) not in traces:
-        warn.append(f"m/z qualifiant {mzl} absent")
-        return pq, None, warn
+        alerts.append(Alert(f"m/z qualifiant {mzl} absent"))
+        return pq, None, alerts
     tl, yl, yls, sigl = prep(int(mzl))
     # Apex qualifiant : maximum local au plus près du temps du quantifiant
     # (le m/z qualifiant peut porter le pic d'un autre composé dans la fenêtre).
@@ -98,8 +97,8 @@ def measure_peak(prep, traces, apex, mzq, mzl, *, min_snr=10.0, baseline="min_bo
     lo, hi = np.searchsorted(tl, [pq.rt - half, pq.rt + half])
     hi = min(hi, len(tl) - 1)
     if lo >= len(tl) or hi <= lo:
-        warn.append("fenêtre qualifiante absente ou trop courte")
-        return pq, None, warn
+        alerts.append(Alert("fenêtre qualifiante absente ou trop courte"))
+        return pq, None, alerts
     apex_l = lo + int(np.argmax(yls[lo:hi + 1]))
     own = integrate_peak(tl, yl, apex_l, ys=yls, sigma=sigl, baseline=baseline, **kw)
     if qual_bounds == "quantifiant":
@@ -111,11 +110,14 @@ def measure_peak(prep, traces, apex, mzq, mzl, *, min_snr=10.0, baseline="min_bo
                             bounds=(left, right), **kw)
     else:
         pl = own
+    # Les vallées du qualifiant (qui ont pu resserrer ses bornes) suivent la même règle.
+    alerts += [a for a in peak_bound_alerts(own, "qualifiant", valley_max, edge_max)
+               if "vallée" in a.message]
     if abs(pl.rt - pq.rt) > pq.rt * RT_TOL_REL:
-        warn.append("apex qualifiant décalé de plus de 0,2 %")
+        alerts.append(Alert("apex qualifiant décalé de plus de 0,2 %"))
     if pl.snr < min_snr:
-        warn.append("qualifiant faible (S/B < seuil)")
-    return pq, pl, warn
+        alerts.append(Alert("qualifiant faible (S/B < seuil)"))
+    return pq, pl, alerts
 
 
 def _preparer(traces):
@@ -130,7 +132,8 @@ def _preparer(traces):
 
 
 def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
-                      baseline="min_bornes", qual_bounds="quantifiant", **kw) -> pd.DataFrame:
+                      baseline="min_bornes", qual_bounds="quantifiant",
+                      valley_max=VALLEY_MAX_RATIO, edge_max=EDGE_MAX_RATIO, **kw) -> pd.DataFrame:
     """Temps de rétention et ratio de référence pour chaque composé.
 
     compounds : colonnes `name`, `mz_quant`, `mz_qual`, `elution_rank`
@@ -138,6 +141,8 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         départage les composés qui partagent un même m/z quantifiant).
     qual_bounds : 'quantifiant' = le qualifiant est intégré sur les bornes du
         quantifiant ; 'independant' = il a sa propre descente.
+    valley_max, edge_max : seuils expérimentaux qui rendent informative une vallée
+        peu profonde ou un bord SIM à signal résiduel faible (voir alerts.py).
     """
     prep = _preparer(traces)
 
@@ -148,14 +153,14 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
     for mzq, grp in comps.groupby("mz_quant", sort=False):
         if mzq not in traces:
             for n in grp["name"]:
-                warns[n].append(f"m/z {mzq} absent")
+                warns[n].append(Alert(f"m/z {mzq} absent"))
             continue
         t, y, ys, sig = prep(mzq)
         idx, prom = candidate_peaks(ys, sig, min_snr)
         n = len(grp)
         if len(idx) < n:
             for nm in grp["name"]:
-                warns[nm].append(f"{len(idx)} pic(s) pour {n} composé(s) sur m/z {mzq}")
+                warns[nm].append(Alert(f"{len(idx)} pic(s) pour {n} composé(s) sur m/z {mzq}"))
             continue
         order = np.argsort(prom)[::-1]
         keep = np.sort(idx[order[:n]])
@@ -163,7 +168,7 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         for apex, nm in zip(keep, grp["name"]):
             picks[nm] = int(apex)
             if ambiguous:
-                warns[nm].append("autre pic proche en intensité sur ce m/z")
+                warns[nm].append(Alert("autre pic proche en intensité sur ce m/z : attribution ambiguë"))
 
     # 2) Contrôle croisé par l'ordre d'élution : un composé doit sortir entre ses
     #    voisins (rangs inférieur et supérieur) trouvés sur les autres m/z. Sinon on
@@ -184,7 +189,7 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         ok = (t[idx] > lo) & (t[idx] < hi)
         if ok.any():
             picks[nm] = int(idx[ok][np.argmax(prom[ok])])
-            warns[nm].append("pic réaffecté d'après l'ordre d'élution")
+            warns[nm].append(Alert("pic réaffecté d'après l'ordre d'élution"))
 
     # 3) Intégration quantifiant + qualifiant.
     rows = []
@@ -193,25 +198,29 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         row = {"elution_rank": c["elution_rank"], "name": nm, "mz_quant": mzq, "mz_qual": mzl}
         warn = warns[nm]
         if nm not in picks:
-            rows.append({**row, "warning": " ; ".join(warn)})
+            rows.append({**row, **render(warn)})
             continue
         pq, pl, w = measure_peak(prep, traces, picks[nm], mzq, mzl, min_snr=min_snr,
-                                 baseline=baseline, qual_bounds=qual_bounds, **kw)
+                                 baseline=baseline, qual_bounds=qual_bounds,
+                                 valley_max=valley_max, edge_max=edge_max, **kw)
         warn += w
-        if "vallee" in (pq.left_stop, pq.right_stop):
-            warn.append("pic voisin : séparation des aires à valider")
         row.update(rt_ref=pq.rt, rt_min=pq.rt * (1 - RT_TOL_REL), rt_max=pq.rt * (1 + RT_TOL_REL),
                    q_left=pq.left, q_right=pq.right, q_stop=f"{pq.left_stop}/{pq.right_stop}",
-                   area_quant=pq.area, snr_quant=pq.snr)
+                   area_quant=pq.area, snr_quant=pq.snr,
+                   valley_ratio=pq.bound_ratio("vallee"), edge_ratio=pq.bound_ratio("fin_signal"))
         if pl is not None:
             ratio = pl.area / pq.area if pq.area > 0 else np.nan
             row.update(l_left=pl.left, l_right=pl.right, area_qual=pl.area, snr_qual=pl.snr,
                        d_rt_qual=pl.rt - pq.rt, ratio_ref=ratio,
                        ratio_min=ratio * (1 - RATIO_TOL_REL), ratio_max=ratio * (1 + RATIO_TOL_REL))
-        row["warning"] = " ; ".join(warn)
+        row.update(render(warn))
         rows.append(row)
 
     out = pd.DataFrame(rows)
+    out["valley_max"], out["edge_max"] = valley_max, edge_max
+    for col in ("warning", "blocking_alerts", "info_alerts"):
+        if col not in out:
+            out[col] = ""
     for col in ("rt_ref", "ratio_ref", "area_quant", "area_qual"):
         if col not in out:
             out[col] = np.nan
@@ -220,7 +229,7 @@ def compute_reference(traces, compounds: pd.DataFrame, *, min_snr=10.0,
         rt = out["rt_ref"].to_numpy(float)
         prev = np.fmax.accumulate(np.r_[-np.inf, rt[:-1]])
         bad = rt <= prev
-        out.loc[bad, "warning"] = (out.loc[bad, "warning"].fillna("")
-                                   + " ; ordre d'élution non respecté").str.strip(" ;")
+        for col in ("warning", "blocking_alerts"):
+            out.loc[bad, col] = (out.loc[bad, col].fillna("")
+                                 + " ; ordre d'élution non respecté").str.strip(" ;")
     return out
-

@@ -85,13 +85,37 @@ class Peak:
     area: float          # aire au-dessus de la baseline
     height: float        # hauteur de l'apex au-dessus de la baseline
     baseline: float      # niveau de baseline à l'apex
-    left_stop: str       # 'baseline' | 'vallee' | 'limite'
+    left_stop: str       # 'baseline' | 'vallee' | 'fin_signal' | 'limite' | 'impose'
     right_stop: str
     snr: float
+    floor: float = float("nan")        # fond F utilisé pour les rapports de niveau
+    left_ratio: float = float("nan")   # (L_borne_gauche - F) / (H_apex - F)
+    right_ratio: float = float("nan")  # (L_borne_droite - F) / (H_apex - F)
+
+    def bound_ratio(self, stop: str) -> float:
+        """Plus grand rapport niveau/hauteur parmi les bornes arrêtées par `stop`."""
+        vals = [r for s, r in ((self.left_stop, self.left_ratio), (self.right_stop, self.right_ratio))
+                if s == stop and np.isfinite(r)]
+        return max(vals) if vals else float("nan")
+
+
+def bound_level_ratio(level: float, apex_level: float, floor: float) -> float:
+    """Rapport niveau/hauteur d'une borne : (L - F) / (H - F), borné à [0, 1].
+
+    L : niveau du signal à la borne ; H : niveau lissé à l'apex ; F : fond.
+    Pour une vallée, c'est la profondeur relative du creux entre deux pics
+    (0 = retour complet au fond, 1 = pas de creux). Pour une borne au bord
+    d'une fenêtre SIM, c'est le signal résiduel quand l'acquisition s'arrête.
+    """
+    h = apex_level - floor
+    if not np.isfinite(h) or h <= 0:
+        return float("nan")
+    return float(min(max((level - floor) / h, 0.0), 1.0))
 
 
 def integrate_peak(t, y, apex, *, ys=None, sigma=None, baseline="min_bornes", bounds=None,
-                   lookahead_min=0.03, flat_k=1.0, rise_k=3.0, max_halfwidth_min=1.0) -> Peak:
+                   lookahead_min=0.03, flat_k=1.0, rise_k=3.0, max_halfwidth_min=1.0,
+                   floor_window_min=0.5) -> Peak:
     """Bornes par double descente depuis l'apex, puis aire sur le signal brut.
 
     bounds = (t_gauche, t_droite) impose les bornes au lieu de les chercher
@@ -151,6 +175,15 @@ def integrate_peak(t, y, apex, *, ys=None, sigma=None, baseline="min_bornes", bo
             rt += 0.5 * (a - c) / den * dt
     b_apex = float(base[apex - il])
     height = float(ys[apex] - b_apex)
-    return Peak(rt, float(t[il]), float(t[ir]), area, height, b_apex,
-                stop_l, stop_r, height / sigma)
 
+    # Fond F pour les rapports de niveau : le plus bas entre les deux bornes et le
+    # 10e percentile du signal brut à ±floor_window_min autour de l'apex. Le
+    # percentile évite F = niveau de vallée quand le pic est encadré par deux
+    # voisins ; prendre le minimum rend le rapport plutôt surestimé (prudent).
+    w = (t >= t[apex] - floor_window_min) & (t <= t[apex] + floor_window_min)
+    floor = float(min(yl, yr, np.percentile(y[w], 10)))
+    apex_level = float(ys[apex])
+    return Peak(rt, float(t[il]), float(t[ir]), area, height, b_apex,
+                stop_l, stop_r, height / sigma, floor,
+                bound_level_ratio(yl, apex_level, floor),
+                bound_level_ratio(yr, apex_level, floor))

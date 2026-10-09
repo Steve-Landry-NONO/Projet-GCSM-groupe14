@@ -50,47 +50,53 @@ def build(noise=1.0):
     return traces
 
 
-compounds = pd.DataFrame(
-    [(n, mq, ml, i) for i, (n, mq, ml, *_ ) in enumerate(SPEC)],
-    columns=["name", "mz_quant", "mz_qual", "elution_rank"])
+def main() -> bool:
+    """Exécute la validation ; retourne True si tous les critères passent."""
+    compounds = pd.DataFrame(
+        [(n, mq, ml, i) for i, (n, mq, ml, *_ ) in enumerate(SPEC)],
+        columns=["name", "mz_quant", "mz_qual", "elution_rank"])
 
-ref = compute_reference(build(), compounds)
+    ref = compute_reference(build(), compounds)
 
-truth = {}
-for name, mq, ml, loc, area, ratio in SPEC:
-    y = emg(loc, area)
-    truth[name] = (T[np.argmax(y)], area, ratio)
+    truth = {}
+    for name, mq, ml, loc, area, ratio in SPEC:
+        y = emg(loc, area)
+        truth[name] = (T[np.argmax(y)], area, ratio)
 
-rows, ok = [], True
-for _, r in ref.iterrows():
-    rt_true, area_true, ratio_true = truth[r["name"]]
-    e_rt = 100 * (r.rt_ref - rt_true) / rt_true
-    e_area = 100 * (r.area_quant - area_true) / area_true
-    e_ratio = 100 * (r.ratio_ref - ratio_true) / ratio_true
-    rows.append((r["name"], r.rt_ref, e_rt, e_area, e_ratio, r.q_stop, r.warning))
-    ok &= abs(e_rt) < 0.2 and abs(e_ratio) < 23
-    if r["name"] in ("Isolé à traînée", "Troisième même m/z", "Faible signal"):
-        ok &= abs(e_area) < 5          # pics isolés : l'aire doit être retrouvée
-    elif abs(e_area) >= 5:
-        # On ne prétend pas retrouver les aires coéluées : elles doivent être signalées.
-        ok &= "séparation des aires à valider" in r.warning
-print(pd.DataFrame(rows, columns=["composé", "rt_ref", "err_rt_%", "err_aire_%",
-                                  "err_ratio_%", "arrêts", "alerte"])
-      .to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+    rows, ok = [], True
+    for _, r in ref.iterrows():
+        rt_true, area_true, ratio_true = truth[r["name"]]
+        e_rt = 100 * (r.rt_ref - rt_true) / rt_true
+        e_area = 100 * (r.area_quant - area_true) / area_true
+        e_ratio = 100 * (r.ratio_ref - ratio_true) / ratio_true
+        rows.append((r["name"], r.rt_ref, e_rt, e_area, e_ratio, r.q_stop, r.warning))
+        ok &= abs(e_rt) < 0.2 and abs(e_ratio) < 23
+        if r["name"] in ("Isolé à traînée", "Troisième même m/z", "Faible signal"):
+            ok &= abs(e_area) < 5          # pics isolés : l'aire doit être retrouvée
+        elif abs(e_area) >= 5:
+            # On ne prétend pas retrouver les aires coéluées : elles doivent être bloquées.
+            ok &= "séparation des aires non validée" in str(r.blocking_alerts)
+    print(pd.DataFrame(rows, columns=["composé", "rt_ref", "err_rt_%", "err_aire_%",
+                                      "err_ratio_%", "arrêts", "alerte"])
+          .to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
-# Répétabilité : 200 tirages de bruit, dispersion du ratio et du temps de rétention.
-rt, ra = [], []
-for _ in range(200):
-    r = compute_reference(build(), compounds).set_index("name")
-    rt.append(r.rt_ref); ra.append(r.ratio_ref)
-rt, ra = pd.concat(rt, axis=1), pd.concat(ra, axis=1)
-rep = pd.DataFrame({"cv_rt_%": 100 * rt.std(axis=1) / rt.mean(axis=1),
-                    "cv_ratio_%": 100 * ra.std(axis=1) / ra.mean(axis=1),
-                    "biais_ratio_%": [100 * (ra.loc[n].mean() - truth[n][2]) / truth[n][2]
-                                      for n in ra.index]})
-print("\nRépétabilité sur 200 tirages de bruit :")
-print(rep.to_string(float_format=lambda v: f"{v:.3f}"))
-ok &= bool((rep["cv_rt_%"] < 0.2).all() and (rep["biais_ratio_%"].abs() < 23).all())
-print("\nRESULTAT :", "OK (aires isolées et signalement des limites ; coélutions non validées)" if ok else "ECHEC")
-sys.exit(0 if ok else 1)
+    # Répétabilité : 200 tirages de bruit, dispersion du ratio et du temps de rétention.
+    rt, ra = [], []
+    for _ in range(200):
+        r = compute_reference(build(), compounds).set_index("name")
+        rt.append(r.rt_ref); ra.append(r.ratio_ref)
+    rt, ra = pd.concat(rt, axis=1), pd.concat(ra, axis=1)
+    rep = pd.DataFrame({"cv_rt_%": 100 * rt.std(axis=1) / rt.mean(axis=1),
+                        "cv_ratio_%": 100 * ra.std(axis=1) / ra.mean(axis=1),
+                        "biais_ratio_%": [100 * (ra.loc[n].mean() - truth[n][2]) / truth[n][2]
+                                          for n in ra.index]})
+    print("\nRépétabilité sur 200 tirages de bruit :")
+    print(rep.to_string(float_format=lambda v: f"{v:.3f}"))
+    ok &= bool((rep["cv_rt_%"] < 0.2).all() and (rep["biais_ratio_%"].abs() < 23).all())
+    print("\nRESULTAT :", "OK (aires isolées et signalement des limites ; coélutions non validées)" if ok else "ECHEC")
+    return ok
 
+
+if __name__ == "__main__":
+    # Script (pas un module unittest) : il n'est exécuté que lancé directement.
+    sys.exit(0 if main() else 1)

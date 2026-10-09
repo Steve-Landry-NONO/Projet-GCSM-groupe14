@@ -78,4 +78,3 @@ if __name__ == "__main__":
         sys.exit(__doc__)
     wanted = {int(m) for m in sys.argv[3:]} or None
     print(export_sample(sys.argv[1], sys.argv[2], wanted))
-

@@ -123,3 +123,9 @@ Prélever une partie d'une solution homogène ne la dilue pas. Le naphtalène-d8
 
 Sources de vérification : [NIST — Naphthalene-D8](https://webbook.nist.gov/cgi/cbook.cgi?ID=1146-65-2) et [Agilent — GC/MS FAQs](https://www.agilent.com/en/product/gas-chromatography-mass-spectrometry-gc-ms/gcms-fundamentals/gcms-faqs).
 
+
+## Mise à jour du 9 octobre après-midi
+
+- **PR #1** : le prototype du premier rendu (module, note, résultats, tests et dépendances) est rangé dans `archive/rendu_mardi/`, avec sa provenance. Il n'est plus dans `src/`, où seul le pipeline de la PR #2 reste un point d'entrée. Le lecteur `src/agilent_ms.py` est identique sur les deux branches, pour une fusion sans conflit.
+- **PR #2** : les alertes sont classées en bloquantes et informatives (D18 à D20 de `CONTEXTE_PROJET.md`). Une vallée devient informative si son rapport vallée/hauteur est inférieur ou égal à 10 %, et un bord de fenêtre SIM si le signal résiduel est inférieur ou égal à 1 % de la hauteur. Ces seuils sont expérimentaux et configurables. Tout le reste reste bloquant, y compris une attribution ambiguë. Méthode et caractérisation : `docs/VALLEE_HAUTEUR.md`.
+- **Ordre de fusion conseillé** : PR #1, puis PR #2. Les deux branches ont été fusionnées à blanc dans cet ordre, sans conflit ; les tests passent sur le résultat.

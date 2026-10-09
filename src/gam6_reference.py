@@ -108,7 +108,7 @@ def integrate_peak(t, y, apex, *, ys=None, sigma=None, lookahead_min=0.03,
     level = lambda i: float(np.median(y[max(0, i - 2): i + 3]))
     baseline = min(level(il), level(ir))
     seg_t, seg_y = t[il:ir + 1], y[il:ir + 1]
-    area = float(np.trapezoid(seg_y - baseline, seg_t))
+    area = float((getattr(np, "trapezoid", None) or np.trapz)(seg_y - baseline, seg_t))
 
     rt = float(t[apex])
     if 0 < apex < len(ys) - 1:
@@ -134,6 +134,10 @@ def compute_reference(traces, compounds: pd.DataFrame, min_snr: float = 5.0) -> 
 
     for mzq, grp in compounds.groupby("mz_quant", sort=False):
         grp = grp.sort_values("elution_rank")
+        if int(mzq) not in traces:
+            for _, c in grp.iterrows():
+                rows.append({"name": c["name"], "warning": f"m/z quantifiant {mzq} absent"})
+            continue
         t, y, ys, sig = prep(int(mzq))
         idx, prom = candidate_peaks(ys, sig, min_snr)
 
@@ -149,9 +153,17 @@ def compute_reference(traces, compounds: pd.DataFrame, min_snr: float = 5.0) -> 
         for apex, (_, c) in zip(keep, grp.iterrows()):
             pq = integrate_peak(t, y, apex, ys=ys, sigma=sig)
 
+            if pd.isna(c["mz_qual"]) or int(c["mz_qual"]) not in traces:
+                rows.append({"name": c["name"], "rt_ref": pq.rt, "area_quant": pq.area,
+                             "warning": "m/z qualifiant absent ; ratio non calculable"})
+                continue
             tl, yl, yls, sigl = prep(int(c["mz_qual"]))
             lo, hi = np.searchsorted(tl, [pq.left, pq.right])
-            hi = min(max(hi, lo + 1), len(tl) - 1)
+            hi = min(hi, len(tl) - 1)
+            if lo >= len(tl) or hi <= lo:
+                rows.append({"name": c["name"], "rt_ref": pq.rt, "area_quant": pq.area,
+                             "warning": "fenêtre qualifiante absente ou trop courte"})
+                continue
             apex_l = lo + int(np.argmax(yls[lo:hi + 1]))
             pl = integrate_peak(tl, yl, apex_l, ys=yls, sigma=sigl)
 
@@ -178,6 +190,9 @@ def compute_reference(traces, compounds: pd.DataFrame, min_snr: float = 5.0) -> 
                 "warning": " ; ".join(warning),
             })
 
+    if not rows:
+        return pd.DataFrame(columns=["name", "elution_rank", "rt_ref", "ratio_ref", "warning"])
     return pd.DataFrame(rows).merge(
         compounds[["name", "elution_rank"]], on="name"
     ).sort_values("elution_rank").reset_index(drop=True)
+
